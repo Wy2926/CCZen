@@ -1,81 +1,98 @@
-# Spec 03 — 应用适配层（主流应用特殊适配）
+---
+title: CCZen 应用适配层规范
+description: 主流应用（IM、浏览器、开发工具、游戏平台、创意软件）声明式清理适配清单的格式与首发范围。
+ms.topic: reference
+ms.date: 2026-07-07
+status: Draft v0.2
+applies-to: Windows 10 版本 1809 及更高版本
+---
 
-> 通用启发式解决"覆盖面"，Adapter 解决"精细度"。Adapter 是**声明式清单**（规则包的一部分，可热更新），不是硬编码：每个 Adapter 先声明"如何在这台机器上发现该应用"，再声明"发现后有哪些可清理项"。
+# 应用适配层规范
 
-## 1. Adapter 清单结构
+通用启发式解决"覆盖面"，Adapter 解决"精细度"。Adapter 是**声明式清单**（规则包的一部分，签名分发、可热更新），不是硬编码。每个 Adapter 先声明"如何在这台机器上发现该应用"，再声明"发现后有哪些可清理项"。所有清理项**必须**满足 00 的可行性约定：路径语义有官方文档、厂商公告或强社区共识依据，登记于 06 追溯表（A-xx）。
 
-```
-adapter:
-  id / 名称 / 分类（IM、浏览器、开发、游戏、创意…）
-  detect:      # 多路发现，命中任一即绑定，全部输出到环境模型
-    - uninstall_registry: 显示名/发布者模式
-    - known_path: ${LOCALAPPDATA}/... 等模式探测
-    - process_name / MSIX 包名
-    - config_probe: 读应用自身配置以定位"数据目录被用户迁移"的情况（如微信文件夹搬到 D 盘）
-  items:       # 可清理项，每项含 tier、解释、枚举器、前置条件
-  preconditions: 运行中处理策略（提示退出 / Restart Manager）
-```
+## Adapter 清单格式
 
-关键点：**detect 支持数据目录重定向**。微信/QQ/网易云等常被用户迁移到非默认盘，Adapter 必须读取应用配置或注册表定位真实数据目录，而不是假设默认路径。
+| ID | 需求 | 级别 |
+|----|------|------|
+| ADPT-FR-001 | Adapter **必须**为独立 JSON 文件，含 `id`、`name`、`category`、`detect`、`items`、`verifiedVersions` 字段，随规则包 Schema 校验 | MUST |
+| ADPT-FR-002 | `detect` **必须**支持多路发现并全部输出到环境模型：Uninstall 注册表模式（RULE-FR-002）、已知路径模式探测、进程名（RULE-FR-005）、MSIX 包名（RULE-FR-003）、`configProbe`（读取应用自身公开配置文件/注册表值定位被用户迁移的数据目录） | MUST |
+| ADPT-FR-003 | `configProbe` 只允许**读取**声明的文件/注册表值并按声明的正则/JSON 路径提取，不允许执行任何代码 | MUST |
+| ADPT-FR-004 | 每个 `item` **必须**含 `tier`、`explain`、枚举模式（符号化 glob 或按时间分桶）、`preconditions`（如"应用未运行"，用 Restart Manager 校验） | MUST |
+| ADPT-FR-005 | 应用版本不在 `verifiedVersions` 范围时对应 items **必须**自动降一档 | MUST |
+| ADPT-FR-006 | Adapter 命中的路径**必须**接管通用启发式（同一路径不重复报告，Adapter 优先） | MUST |
+| ADPT-FR-007 | 进入 T0/T1 的 item **必须**在 06 追溯表登记依据（官方文档 / 厂商支持页 / 强共识——如多个主流清理工具的公开行为） | MUST |
 
-## 2. 首发 Adapter 集（v1 范围）
+### 数据目录迁移探测（关键通用性要求）
 
-### 2.1 即时通讯（国内环境重灾区）
-| 应用 | 项目（示例） | 档位 |
-|------|--------------|------|
-| 微信 / 企业微信 | 图片/视频/文件缓存按**月份分桶**展示（`FileStorage/Cache`、`Video`、`Image`）；小程序缓存；更新包残留 | 缓存 T1；聊天媒体 T2（按月勾选，明确提示"删除后聊天记录内无法再查看原图/视频"） |
-| QQ / TIM | 群文件缓存、图片缓存、更新残留 | 同上 |
-| 钉钉 / 飞书 | 会议录制缓存、文件缓存 | T1/T2 |
-| Telegram / WhatsApp | media cache | T1/T2 |
+微信/QQ/网易云音乐等常被用户把数据目录迁移到非系统盘。Adapter **必须**通过 `configProbe` 读取应用自身记录的路径（示例：微信 `HKCU\Software\Tencent\WeChat\FileSavePath` 及 `%APPDATA%\Tencent\WeChat\All Users\config\3ebffe94.ini` 中记录的存储路径——均为社区广泛验证的公开位置），而不是假设默认路径。探测失败时回退到默认路径模式匹配；仍未命中则该 Adapter 不激活（由通用启发式兜底）。
 
-### 2.2 浏览器
-Chrome / Edge / Firefox / 360 / QQ 浏览器：
-- 按 **profile** 枚举（支持多用户配置）：HTTP 缓存、Code Cache、GPUCache、Service Worker 缓存、旧版本残留（Edge/Chrome 的 `Application/<old_version>`）→ T0/T1
-- **绝不触碰**：书签、历史、Cookies、密码、扩展数据（保护清单硬编码）
-- 浏览器运行中 → 只提示，不清理
+## 首发 Adapter 集（v1）
 
-### 2.3 开发工具（开发者机器的最大金矿）
-| 生态 | 项目 | 档位 |
+> 下表"档位"指该项最高档；实际档位仍受 02 评分与一票降级约束。每项依据登记在 06（A-xx）。
+
+### 即时通讯
+
+| 应用 | 项目 | 档位 |
 |------|------|------|
-| npm/yarn/pnpm | 全局缓存（`npm cache`、pnpm store 未引用包 via prune 语义）；**过期项目的 node_modules**（配套 .git 仓库、≥90 天未动的项目列为 T2 展示） | T1 / T2 |
-| pip/conda | wheel 缓存、conda pkgs | T1 |
-| Gradle/Maven | caches/modules-2、旧 wrapper 发行版 | T1 |
-| cargo | registry cache/src | T1 |
-| NuGet | 全局包缓存 | T1 |
-| Docker Desktop | 提示走 `docker system prune` 语义 + **WSL2 vhdx 压缩引导**（ext4.vhdx 不回收问题，T3 引导式操作） | T3 |
-| IDE（VS/JetBrains/VSCode） | 旧版本缓存目录、日志、崩溃转储；JetBrains 按版本号识别**已不存在版本**的缓存 | T1 |
-| Windows SDK/驱动 | Installer 缓存孤儿包（严格校验 msi/msp 引用后才列 T2） | T2 |
+| 微信 / 企业微信 | `FileStorage\Cache`、小程序缓存（`WMPF`/`Applet`）、更新包残留：T1；`FileStorage\Image/Video/File` 聊天媒体按**月份分桶**展示：T2（明确提示"删除后聊天记录内无法查看原图/视频"） | T1/T2 |
+| QQ / TIM | 图片缓存、群文件缓存、更新残留 | T1/T2 |
+| 钉钉 / 飞书 | 文件缓存、会议录制缓存 | T1/T2 |
+| Telegram Desktop | `tdata\user_data` 媒体缓存（应用内亦提供官方清理入口，语义明确） | T1 |
 
-### 2.4 游戏平台
-| 平台 | 项目 | 档位 |
+### 浏览器（Chromium 系 / Firefox）
+
+| 项目 | 说明 | 档位 |
 |------|------|------|
-| Steam | shader cache、旧安装器残留、workshop 孤儿内容；`libraryfolders.vdf` 解析多库位置 | T1 |
-| Epic/EA/Ubisoft | 下载暂存、日志 | T1 |
-| 米哈游系/网易系启动器 | 更新包残留（下载完成已安装的 zip/分卷） | T1 |
-| NVIDIA/AMD | DXCache/GLCache、驱动安装残留（`NVIDIA/Displ.Driver` 旧版本） | T1 |
+| HTTP Cache、`Code Cache`、`GPUCache`、Service Worker CacheStorage | 按 **profile** 枚举（`User Data\*\`），目录语义为 Chromium 公开源码结构 | T0/T1 |
+| 旧版本残留（`Application\<old_version>`） | 版本目录与当前运行版本比对 | T1 |
+| **绝不触碰** | Bookmarks、History、Cookies、Login Data、扩展数据——列入保护清单（04） | — |
+| 前置条件 | 浏览器运行中只提示不清理（Restart Manager 判定） | — |
 
-### 2.5 创意与办公
-- Adobe 系（Premiere/AE）：Media Cache Files（T1，业界公认可再生）
-- 达芬奇/剪映：渲染缓存、代理文件（T2，提示影响工程打开速度）
-- Office：更新缓存、崩溃转储（T1）
-- 网盘类（OneDrive/百度网盘/夸克/迅雷）：本地缓存、已完成任务的临时分片（T1）；OneDrive 提示"仅在线可用"释放（T3 引导）
+### 开发工具
 
-### 2.6 系统厂商全家桶
-360/腾讯电脑管家等自身的备份与下载目录（T2，避免互删争议，仅展示）。
+| 生态 | 项目 | 依据 | 档位 |
+|------|------|------|------|
+| npm / pnpm / yarn | 全局缓存目录（`npm config get cache`）；pnpm 用官方 `pnpm store prune` 语义 | 各工具官方文档 | T1 |
+| pip / conda | `pip cache dir`、conda `pkgs` | 官方文档（`pip cache purge`、`conda clean`） | T1 |
+| Gradle / Maven | `~/.gradle/caches/modules-2`、旧 wrapper 发行版；`~/.m2/repository` 仅报告 | Gradle/Maven 官方文档 | T1/T2 |
+| NuGet | 全局包缓存（官方 `dotnet nuget locals` 语义） | [官方文档](https://learn.microsoft.com/nuget/consume-packages/managing-the-global-packages-and-cache-folders) | T1 |
+| 陈旧项目 node_modules | 含 `.git` 的项目根、≥90 天未修改 → 仅 T2 展示 | 启发式（02） | T2 |
+| Docker Desktop | 引导官方 `docker system prune`；WSL2 `ext4.vhdx` 空间不回收 → 引导官方 [`Optimize-VHD`/diskpart compact vdisk](https://learn.microsoft.com/windows-server/administration/windows-commands/vdisk-compact) 流程 | 官方命令 | T3 |
+| Visual Studio / JetBrains / VS Code | 旧版本缓存目录（JetBrains 按版本号目录识别已不存在版本）、日志、崩溃转储 | 厂商公开目录约定 | T1 |
+| Windows Installer 孤儿缓存 | `%WINDIR%\Installer` 中未被任何已安装产品引用的 msi/msp（通过 [MSI API `MsiEnumProducts`/`MsiGetProductInfo`](https://learn.microsoft.com/windows/win32/api/msi/nf-msi-msienumproductsw) 严格核对引用后仅列 T2） | 公开 MSI API | T2 |
 
-## 3. 通用回退保证
+### 游戏平台与显卡
 
-未被任何 Adapter 覆盖的应用，仍由 02 的通用启发式兜底（cache 形态目录、日志、孤儿目录）。Adapter 命中时**接管**对应路径，避免同一路径被通用规则和 Adapter 重复报告（Adapter 优先级更高）。
+| 平台 | 项目 | 依据 | 档位 |
+|------|------|------|------|
+| Steam | `shadercache`、`downloading` 残留；多库位置解析 `libraryfolders.vdf`（公开文本格式） | Valve 公开目录结构 | T1 |
+| Epic / EA / Ubisoft | 下载暂存、日志 | 各平台公开目录 | T1 |
+| 米哈游/网易系启动器 | 已完成安装的更新包残留 | 启动器公开下载目录 | T1 |
+| NVIDIA / AMD | `DXCache`/`GLCache`/`NV_Cache` 着色器缓存；NVIDIA 旧驱动安装残留（`Displ.Driver` 版本目录） | 厂商公开缓存目录 | T1 |
 
-## 4. Adapter 治理
+### 创意与办公
 
-- 每个 Adapter 是独立文件，社区/团队可增改；CI 对 schema、tier 合法性、explain 完整性做门禁
-- Adapter 声明 `verified_versions`：应用大版本变更目录结构时，未验证版本自动降一档
-- 数据来源标注：每个清理项注明依据（官方文档/社区共识/逆向确认），进入 T0/T1 必须有官方或强共识依据
-- 遥测缺省关闭；若用户自愿开启"匿名规则效果反馈"，仅上报规则命中统计（无路径、无文件名）
+| 应用 | 项目 | 依据 | 档位 |
+|------|------|------|------|
+| Adobe Premiere / AE | Media Cache Files（Adobe 官方提供"清理媒体缓存"功能，语义明确） | [Adobe 官方文档](https://helpx.adobe.com/premiere-pro/using/media-cache.html) | T1 |
+| DaVinci / 剪映 | 渲染缓存、代理文件（提示影响工程打开速度） | 厂商公开设置项 | T2 |
+| Office | 更新缓存、崩溃转储 | 公开目录 | T1 |
+| 网盘/下载（OneDrive、百度网盘、迅雷） | 本地缓存、已完成任务临时分片：T1；OneDrive"仅在线可用"释放引导官方 [Files On-Demand](https://support.microsoft.com/office/save-disk-space-with-onedrive-files-on-demand-for-windows-0e6860d3-d9f3-4971-b321-7092438fb38e)：T3 | 官方功能 | T1/T3 |
 
-## 5. 测试要点
+### 安全软件全家桶
 
-- 每个 Adapter 一套目录夹具（含默认路径版 + 迁移路径版 + 便携版）做 golden 断言
+360/腾讯电脑管家等自身的备份与下载目录：仅 T2 展示（避免互删争议）。
+
+## 治理
+
+| ID | 需求 | 级别 |
+|----|------|------|
+| ADPT-FR-010 | CI **必须**对 Adapter 做 Schema、tier 合法性、explain 完整性、06 依据登记的门禁校验 | MUST |
+| ADPT-FR-011 | 遥测默认关闭；用户自愿开启时仅上报规则命中统计（无路径、无文件名） | MUST |
+
+## 测试要求
+
+- 每个 Adapter 三套夹具：默认路径版、迁移路径版、便携版 → golden 断言
 - 应用运行中场景：断言只提示不删除
-- 版本升级场景：目录结构变化后不误报、自动降档
+- 版本升级场景：目录结构变化后不误报、`verifiedVersions` 外自动降档

@@ -1,121 +1,132 @@
-# Spec 02 — 清理规则引擎（无 LLM 的"清理智能"）
+---
+title: CCZen 清理规则引擎规范
+description: 环境发现、候选生成、证据评分与风险分级的功能需求，以及规则包数据格式。全部推理本地执行，不依赖 LLM。
+ms.topic: reference
+ms.date: 2026-07-07
+status: Draft v0.2
+applies-to: Windows 10 版本 1809 及更高版本
+---
 
-> 核心思想：把有经验的工程师/Agent 判断"这个能删"的思考过程，固化为**可解释的本地推理管线**：环境发现 → 候选生成 → 证据信号 → 置信度评分 → 风险分级。全程离线、零 LLM、结果可审计。
+# 清理规则引擎规范
 
-## 1. 设计原则
+规则引擎把"有经验的工程师判断哪些内容可以清理"的过程固化为可解释的本地推理管线：**环境发现 → 候选生成 → 证据评估 → 评分 → 风险分级 → 推荐输出**。全程离线、零 LLM、结果可审计。每个环节只使用公开文档记载的 API 或成熟先例（追溯表 06 条目 R-xx）。
 
-1. **不写死路径**：规则描述的是"模式 + 证据"，不是绝对路径。同一条规则要在中文/英文系统、C 盘装 D 盘装、便携版安装等环境下都成立
-2. **证据叠加**：单一信号（如文件夹名叫 cache）不足以删除；多个独立信号叠加才提升置信度
-3. **可再生性优先**：只推荐删除"删了会被自动重建/不影响数据"的内容
-4. **可解释**：每个推荐项都能展示"为什么推荐"（命中的规则与信号）
-5. **规则包与代码分离**：规则是签名的数据文件，可独立更新迭代（见 04 签名要求）
+## 设计原则
 
-## 2. 管线总览
+1. **不写死路径**：规则描述"符号化位置 + 模式 + 证据"，通过环境模型绑定到真实路径
+2. **证据叠加**：单一信号不足以删除；多个独立信号叠加才提升置信度
+3. **可再生性优先**：只推荐删除"删除后可被自动重建/不影响用户数据"的内容
+4. **可解释**：每个推荐项展示命中的规则与信号
+5. **规则即数据**：规则包为签名 JSON 文档（System.Text.Json + JSON Schema 校验），无代码执行能力
 
-```
-[环境发现 Discovery] → [候选生成 Candidates] → [证据评估 Evidence]
-       → [评分 Scoring] → [风险分级 Tiering] → [推荐输出 + 解释]
-```
+## 管线 1 — 环境发现（Environment Discovery）
 
-## 3. 环境发现（Discovery）
+| ID | 需求 | 实现依据 | 级别 |
+|----|------|----------|------|
+| RULE-FR-001 | **必须**通过 [`SHGetKnownFolderPath`](https://learn.microsoft.com/windows/win32/api/shlobj_core/nf-shlobj_core-shgetknownfolderpath)（.NET: `Environment.GetFolderPath` + KNOWNFOLDERID 互操作）解析每个用户的 TEMP、LocalAppData、Downloads、Documents 等真实位置（应对文件夹重定向） | 公开 API | MUST |
+| RULE-FR-002 | **必须**从注册表 [Uninstall 键](https://learn.microsoft.com/windows/win32/msi/uninstall-registry-key)（HKLM/HKCU × 64/32 位视图，`Microsoft.Win32.RegistryKey.OpenBaseKey`）构建已安装应用清单（名称、版本、InstallLocation、发布者） | 公开注册表约定 | MUST |
+| RULE-FR-003 | **必须**通过 [`PackageManager.FindPackagesForUser`](https://learn.microsoft.com/uwp/api/windows.management.deployment.packagemanager) 枚举 MSIX/Store 应用 | 公开 WinRT API | MUST |
+| RULE-FR-004 | **必须**采集环境变量与常见包管理器配置定位缓存重定向（`npm config get cache`、`PIP_CACHE_DIR`、`GRADLE_USER_HOME`、`CARGO_HOME`、`NUGET_PACKAGES` 等，均为各工具公开配置项） | 各工具官方文档 | MUST |
+| RULE-FR-005 | **必须**用 `System.Diagnostics.Process.GetProcesses` 建立运行中进程快照（影响可清理性判定） | .NET BCL | MUST |
+| RULE-FR-006 | **必须**采集卷信息（`DriveInfo`：类型、容量、剩余空间）；剩余空间只影响展示排序，**不得**放宽安全阈值 | .NET BCL | MUST |
 
-在扫描索引就绪后，先"认识这台电脑"，产出 **环境模型**：
+环境模型输出符号绑定表：规则通过 `${TEMP}`、`${LOCALAPPDATA}`、`${app:WeChat.data_dir}` 引用位置，不出现字面绝对路径。
 
-| 来源 | 得到什么 |
-|------|----------|
-| Known Folders API（`SHGetKnownFolderPath`） | 各用户 TEMP、LocalAppData、Downloads、Documents 等真实位置（应对重定向） |
-| 注册表 Uninstall 键（HKLM/HKCU、含 WOW6432Node）+ MSIX 包列表 | 已安装应用清单：名称、版本、安装路径、发布者 |
-| 环境变量 / 常见配置文件 | JAVA_HOME、CARGO_HOME、npm prefix、pip cache dir 等开发环境重定向 |
-| 服务/进程快照 | 哪些应用正在运行（影响可清理性与锁判断） |
-| 卷信息 | 各卷类型、剩余空间（影响推荐激进程度的展示，不影响安全阈值） |
-| 用户画像启发（本地统计） | 是否开发者（存在 .git/node_modules/SDK）、是否游戏玩家（Steam/Epic）等，仅用于结果分组展示 |
+## 管线 2 — 候选生成（Candidates）
 
-环境模型是后续一切规则的**变量绑定表**：规则引用 `${TEMP}`、`${LOCALAPPDATA}`、`${app:WeChat.install_dir}` 等符号，而非字面路径。
+### 2.1 系统级已知类别（全部有微软官方清理通道或公开语义）
 
-## 4. 候选生成（Candidates）
+| ID | 类别 | 实现依据 | 级别 |
+|----|------|----------|------|
+| RULE-FR-010 | 用户/系统临时目录内容 | `GetTempPath` 语义；Windows 存储感知同样清理 | MUST |
+| RULE-FR-011 | 回收站（各卷 `$Recycle.Bin`）：统计用 [`SHQueryRecycleBin`](https://learn.microsoft.com/windows/win32/api/shellapi/nf-shellapi-shqueryrecyclebin)，清空用 [`SHEmptyRecycleBin`](https://learn.microsoft.com/windows/win32/api/shellapi/nf-shellapi-shemptyrecyclebin) | 公开 Shell API | MUST |
+| RULE-FR-012 | Windows 更新缓存 `%WINDIR%\SoftwareDistribution\Download`：停 `wuauserv` 服务（`ServiceController`）后删除内容再恢复 | 微软官方排障文档记载的公开步骤 | MUST |
+| RULE-FR-013 | 传递优化缓存：**必须**优先调用 [Delivery Optimization 的官方清理接口（`Delete-DeliveryOptimizationCache` PowerShell / IDO API）](https://learn.microsoft.com/windows/deployment/do/waas-delivery-optimization) | 官方 API | MUST |
+| RULE-FR-014 | Windows.old / $WINDOWS.~BT：**必须**通过磁盘清理已注册处理程序通道（cleanmgr [SAGESET 自动化](https://learn.microsoft.com/windows-server/administration/windows-commands/cleanmgr) 或 Storage Sense 引导），不自行删除 | 官方通道 | MUST |
+| RULE-FR-015 | 内存转储（`%WINDIR%\MEMORY.DMP`、`Minidump\*.dmp`）、WER 报告队列（ProgramData\Microsoft\Windows\WER） | cleanmgr 同类清理项 | MUST |
+| RULE-FR-016 | 缩略图缓存（`%LOCALAPPDATA%\Microsoft\Windows\Explorer\thumbcache_*.db`） | cleanmgr 同类清理项 | MUST |
+| RULE-FR-017 | 休眠文件：**必须**只引导用户执行 `powercfg /hibernate off`（官方命令），绝不直接删 hiberfil.sys | [powercfg 文档](https://learn.microsoft.com/windows-hardware/design/device-experiences/powercfg-command-line-options) | MUST |
+| RULE-FR-018 | WinSxS：**必须**只通过 [DISM `StartComponentCleanup`](https://learn.microsoft.com/windows-hardware/manufacture/desktop/clean-up-the-winsxs-folder) 官方通道 | 官方文档 | MUST |
 
-三类生成器并行，全部在内存索引上运行（见 01 §4）：
+### 2.2 通用启发式（覆盖长尾软件）
 
-### 4.1 系统级已知类别（规则包内置，微软公开语义）
-临时目录、回收站（各卷 `$Recycle.Bin`）、Windows Update 缓存（SoftwareDistribution\Download）、Delivery Optimization、Windows.old、内存转储（MEMORY.DMP、Minidump）、WER 报告、缩略图/图标缓存、字体缓存、事件日志归档、Prefetch、Windows 升级残留（$WINDOWS.~BT）、休眠文件与页面文件（**只提示不代删**，走系统 API 建议）、WinSxS（**只通过 DISM StartComponentCleanup 通道**，绝不直接删文件）。
+| ID | 需求 | 级别 |
+|----|------|------|
+| RULE-FR-020 | **必须**支持"缓存形态目录"检测：路径段命中可更新词表（`cache/tmp/logs/GPUCache/ShaderCache/CrashDumps` 等），且位于 `${LOCALAPPDATA}`/`${TEMP}`/应用安装目录，而非用户文档区 | MUST |
+| RULE-FR-021 | **必须**支持日志/转储文件形态检测：`*.log`、`*.tmp`、`*.dmp`、`*.etl`、`*.old`、`*.bak`（bak 风险档更高） | MUST |
+| RULE-FR-022 | **必须**支持安装包残留检测：Downloads/TEMP 中的安装介质（exe/msi/zip），对应应用已安装且 N 天未访问 | MUST |
+| RULE-FR-023 | **必须**支持孤儿目录检测：AppData/ProgramData 下归属应用不在已安装清单且 ≥ 90 天未修改（仅 T2 档） | MUST |
+| RULE-FR-024 | **应**支持重复大文件报告：≥ 阈值同尺寸文件分段哈希（`System.Security.Cryptography.SHA256`/`XxHash64`（[System.IO.Hashing](https://learn.microsoft.com/dotnet/api/system.io.hashing)））确认；仅报告，保留哪份由用户决定 | SHOULD |
+| RULE-FR-025 | 大而陈旧的文件**必须**只进入"大文件浏览器"供用户决策，永不自动推荐删除 | MUST |
 
-### 4.2 通用启发式（覆盖长尾软件，"Agent 直觉"的固化）
+### 2.3 应用适配器
+见 [03-app-adapters.md](03-app-adapters.md)。Adapter 命中的路径接管通用规则（去重，Adapter 优先）。
 
-对索引做模式扫描，产出"疑似可清理"候选：
+## 管线 3 — 证据信号（Evidence）
 
-- **缓存形态目录**：路径段命中 `cache|caches|tmp|temp|logs|log|crash|dumps|pending|staging|GPUCache|Code Cache|ShaderCache|thumbnails` 等词表（词表在规则包中可更新），且位于 `%LOCALAPPDATA%`/`%TEMP%`/应用安装目录下，而非用户文档区
-- **日志/转储文件形态**：`*.log`、`*.log.N`、`*.dmp`、`*.etl`、`*.tmp`、`*.old`、`*.bak`（bak 类风险级更高）
-- **安装包残留**：Downloads 与 TEMP 中的 `*.exe|*.msi|*.zip` 安装介质，且对应应用已在环境模型中显示已安装、文件超过 N 天未访问
-- **孤儿数据**：`%APPDATA%`/`%LOCALAPPDATA%`/ProgramData 下的应用目录，其归属应用**不在已安装清单**且目录 ≥ 90 天未修改 → "卸载残留"候选（低置信，需用户确认级别）
-- **重复大文件**：对 ≥ 阈值（默认 256 MB）的同尺寸文件做分段哈希（头/中/尾采样 → 全量确认），报告重复组（仅报告，删除永远由用户选择保留哪份）
-- **陈旧大文件**：大文件 + 长期未访问，仅进入"大文件浏览器"供用户决策，**永不自动推荐删除**
+每个候选收集以下信号，各输出 [0,1] 分值；全部为本地可计算量：
 
-### 4.3 应用适配器（见 03）
-Adapter 对主流应用产出更精细、带业务语义的候选（如"微信 2023 年以前的聊天图片缓存"）。
+| 信号 | 计算方式 | 实现依据 |
+|------|----------|----------|
+| `location` | 位置语义强度（TEMP=1.0；LocalAppData 缓存命名=0.8；用户文档区=0） | 环境模型 |
+| `regenerable` | 命中系统类别/Adapter 声明=高；未知=低 | 规则包数据 |
+| `staleness` | 基于修改时间的衰减函数；LastAccess 仅在 `NtfsDisableLastAccessUpdate`（[fsutil behavior](https://learn.microsoft.com/windows-server/administration/windows-commands/fsutil-behavior)）显示启用更新时参与 | 索引数据 + 注册表 |
+| `owner_state` | 已卸载 > 已安装未运行 > 运行中（运行中大幅降分） | RULE-FR-002/005 |
+| `content_type` | 候选树内含文档/照片/工程文件等用户资产扩展名 → 一票降级 | 索引扩展名统计 |
+| `lock_state` | [Restart Manager（`RmStartSession`/`RmGetList`）](https://learn.microsoft.com/windows/win32/api/restartmgr/nf-restartmgr-rmgetlist) 占用探测 → 降分 | 公开 API |
+| `system_critical` | 命中保护清单（见 04）→ 一票否决 | 引擎硬编码 |
 
-## 5. 证据信号（Evidence）
+## 管线 4 — 评分与风险分级
 
-每个候选收集一组独立信号，各信号输出 [0,1] 分值：
-
-| 信号 | 说明 |
-|------|------|
-| `location` | 所在位置的语义强度（TEMP=1.0，LocalAppData 下 cache 命名=0.8，用户文档区=0） |
-| `regenerable` | 可再生性：已知缓存语义/命中 Adapter 声明=高；未知=低 |
-| `staleness` | 年龄：基于修改/访问时间的衰减函数（注意 NTFS 默认可能关闭 LastAccess 更新，需检测 `NtfsDisableLastAccessUpdate` 并降权该信号） |
-| `owner_state` | 归属应用状态：已卸载 > 已安装未运行 > 正在运行（运行中大幅降分并标记"需退出应用"） |
-| `content_type` | 内容扩展名画像：候选目录内若含文档/照片/工程文件等"用户资产"扩展名 → 一票降级 |
-| `lock_state` | 文件占用探测（open 探测 + Restart Manager）：被占用 → 降分 |
-| `system_critical` | 命中保护清单（Windows、Program Files 核心、驱动、用户配置文件根等）→ 一票否决 |
-| `adapter_confidence` | Adapter 显式声明的项获得基础高置信 |
-
-## 6. 评分与风险分级（Tiering）
-
-综合置信分 = 加权组合（权重在规则包中调优），并受"一票否决/一票降级"约束。输出四档：
+综合置信分 = 规则包定义的加权组合，受一票否决/降级约束。输出四档：
 
 | 档位 | 含义 | 默认行为 |
 |------|------|----------|
-| **T0 安全** | 微软/Adapter 明确语义的可再生内容（TEMP、回收站按用户选择、WU 缓存…） | 进入"一键清理"默认勾选 |
-| **T1 推荐** | 多信号高置信启发式命中（如通用 cache 目录、旧安装包） | 展示并默认勾选，逐组可看"为什么" |
-| **T2 谨慎** | 中置信（孤儿目录、`*.bak`、聊天媒体等用户可能在意的内容） | 展示但**默认不勾选**，需逐项确认 |
-| **T3 专家** | 仅供浏览决策（大文件、重复文件、休眠/页面文件建议、WinSxS） | 只读展示 + 引导操作，绝不出现在一键清理 |
+| **T0 安全** | 官方语义/官方通道的可再生内容 | 一键清理默认勾选 |
+| **T1 推荐** | 多信号高置信启发式命中 | 展示并默认勾选，逐组可看"为什么" |
+| **T2 谨慎** | 中置信（孤儿目录、`*.bak`、聊天媒体等） | 展示但默认不勾选，逐项确认 |
+| **T3 专家** | 大文件/重复文件/系统级引导操作 | 只读展示 + 官方通道引导，绝不进入一键清理 |
 
 硬性规则：
-- 任何档位删除都走隔离区/回收站（见 04）
-- 阈值可调，但用户设置**只能更保守，不能把 T2/T3 提升为自动清理**
-- 空间紧张不放宽安全阈值（避免"越缺空间越乱删"的反模式）
+- 任何删除都走隔离区/回收站（见 04）
+- 用户设置只能更保守；**不得**把 T2/T3 提升为自动清理
+- 空间紧张不放宽安全阈值
 
-## 7. 规则包 DSL
+## 规则包格式
 
-规则以声明式文档（TOML/JSON，schema 校验）分发，示例形态（示意，非最终 schema）：
+- 格式：JSON（UTF-8），随包分发 [JSON Schema](https://json-schema.org/)，引擎加载前 **必须** 校验（System.Text.Json + JsonSchema.Net 或等价实现）
+- 组成：内置基线包（随安装分发）+ 可选更新包（ECDSA P-256 签名校验，见 04-SAFE-FR-030）
+- 每条规则字段：`id`、`tier`/`tierCap`、`targets`（符号化 glob）、`match`（词表/扩展名引用）、`signals` 权重、`preconditions`（如 `service:wuauserv`）、`action`（引擎内置动作集枚举：`quarantine`/`recycle`/`delete-contents`/`invoke-official:<channel>`）、`explain` 文案
+- 词表（缓存词、用户资产扩展名，多语言）同为规则包数据
+- Schema 版本化；引擎兼容 N-1 版本
 
-```toml
-[rule.generic-app-cache]
-tier_cap = "T1"                 # 该规则最高只能给到 T1
-targets  = ["${LOCALAPPDATA}/**"]
-match    = { dir_name_lexicon = "cache_words", exclude_content = "user_asset_exts" }
-signals  = { location = 0.8, regenerable = 0.7 }
-explain  = "位于本地应用数据区的缓存目录，删除后应用会自动重建"
+示例（示意）：
 
-[rule.windows-update-cache]
-tier     = "T0"
-targets  = ["${WINDIR}/SoftwareDistribution/Download/*"]
-preconditions = ["service_stopped_or_stoppable:wuauserv"]
-action   = { stop_service = "wuauserv", delete = "contents", restart_service = true }
+```json
+{
+  "id": "generic-app-cache",
+  "tierCap": "T1",
+  "targets": ["${LOCALAPPDATA}/**"],
+  "match": { "dirNameLexicon": "cache_words", "excludeContent": "user_asset_exts" },
+  "signals": { "location": 0.8, "regenerable": 0.7 },
+  "action": "quarantine",
+  "explain": "位于本地应用数据区的缓存目录，删除后应用会自动重建"
+}
 ```
 
-要求：
-- schema 版本化；引擎向后兼容 N-1 版本规则包
-- 规则包 = 内置基线包（随安装分发）+ 可选更新包（签名校验，见 04）
-- 词表（cache 词、用户资产扩展名表）也是规则包数据，可随迭代扩充多语言词汇
-- 每条规则必须带 `explain` 文案与 `tier`/`tier_cap`
+## 输出契约
 
-## 8. 输出契约
+引擎向 UI 输出按类别分组的候选树，每项含：路径、逻辑/分配大小、档位、置信分、命中规则 ID、解释文案、前置条件、执行计划。
 
-规则引擎向 UI 输出结构化结果：按类别分组的候选树，每项含：路径、逻辑/分配大小、档位、置信分、命中规则 ID、解释文案、前置条件（如"需退出微信"）、执行计划（删除/停服务后删/调用系统 API）。
+## 测试要求
 
-## 9. 测试要点
+- 规则包 Schema 校验测试 + golden 测试：固定夹具文件树 → 断言推荐集与档位完全一致
+- 对抗夹具：用户照片放入名为 cache 的目录 → 必须被 `content_type` 降级
+- 中文用户名、Known Folders 重定向、便携版应用环境矩阵
+- 属性测试（FsCheck）：随机文件树输入不崩溃、保护路径永不出现在 T0/T1
 
-- 规则包 schema 校验 + golden 测试：固定夹具文件树 → 断言推荐集合与档位完全一致
-- 对抗夹具：把用户照片放进名为 cache 的目录 → 必须被 `content_type` 降级
-- 中文/多语言用户名、重定向的 Known Folders、便携版应用环境矩阵
-- 模糊测试：随机文件树输入不得崩溃、不得产出 T0/T1 的保护路径项
+## 另请参阅
+
+- [存储感知（Storage Sense）](https://support.microsoft.com/windows/manage-drive-space-with-storage-sense-654f6ada-7bfc-45e5-966b-e24aded96ad5) — 本引擎 T0 类别与其清理范围对齐
+- [cleanmgr 命令](https://learn.microsoft.com/windows-server/administration/windows-commands/cleanmgr)
+- 06 追溯表条目 R-01 ~ R-20

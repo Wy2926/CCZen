@@ -1,71 +1,92 @@
-# Spec 05 — 技术架构、性能预算与验收
+---
+title: CCZen 技术架构与工程规范
+description: .NET 技术选型、进程模型、性能与内存预算、兼容矩阵、测试策略与里程碑。
+ms.topic: architecture
+ms.date: 2026-07-07
+status: Draft v0.2
+applies-to: Windows 10 版本 1809 及更高版本
+---
 
-## 1. 技术选型（建议）
+# 技术架构与工程规范
 
-| 层 | 选型 | 理由 |
+## 技术选型（.NET 全栈）
+
+| 层 | 选型 | 依据 |
 |----|------|------|
-| 核心引擎 | **Rust**（备选 C++/20） | 无 GC 停顿、内存精确控制（百万级索引）、安全并发；windows-rs 完整覆盖 Win32/NT API |
-| UI | WinUI 3（原生观感）或 Tauri + WebView2（迭代快、treemap 可视化生态好）——POC 后二选一（ADR 待定 D7） | Win10 1809+ 均自带 WebView2 可分发 |
-| IPC | 命名管道 + JSON-RPC，schema 版本化 | UI/引擎/提权助手三进程解耦 |
-| 规则包 | TOML/JSON + JSON Schema + Ed25519 签名 | 见 02/04 |
-| 安装 | MSIX 或 Inno Setup；单 exe 便携版（便携版无服务，功能自动降级） | 覆盖企业与个人 |
+| 运行时 | [.NET 8 (LTS)](https://learn.microsoft.com/dotnet/core/whats-new/dotnet-8/overview)，C# 12 | LTS 支持至 2026-11；后续升级 .NET 10 LTS |
+| UI | [WinUI 3（Windows App SDK）](https://learn.microsoft.com/windows/apps/winui/winui3/) + CommunityToolkit.Mvvm | 微软当前主推的桌面 UI 栈；Win10 1809+ 支持 |
+| Win32 互操作 | [CsWin32 源生成器](https://github.com/microsoft/CsWin32)（微软官方） | 强类型 P/Invoke，覆盖本 spec 全部 API |
+| 引擎 | CCZen.Engine 类库 + 通用宿主（`Microsoft.Extensions.Hosting`） | 标准 .NET 模式 |
+| IPC | `System.IO.Pipes` 命名管道 + [StreamJsonRpc](https://github.com/microsoft/vs-streamjsonrpc)（微软官方 JSON-RPC 库） | 成熟先例（VS 内部使用） |
+| 序列化 | `System.Text.Json`（索引缓存用二进制自定义格式 + `XxHash64` 校验，[System.IO.Hashing](https://learn.microsoft.com/dotnet/api/system.io.hashing)） | BCL |
+| 规则校验 | JSON Schema（JsonSchema.Net）+ `ECDsa` 签名 | 见 04 |
+| 打包 | MSIX（商店/侧载）+ [MSI/Setup 备选]；自包含发布（self-contained，免装运行时） | [.NET 部署文档](https://learn.microsoft.com/dotnet/core/deploying/) |
+| 基准/测试 | xUnit + FsCheck + [BenchmarkDotNet](https://benchmarkdotnet.org/) + WinAppDriver/FlaUI（UI 自动化） | 成熟生态 |
 
-## 2. 进程模型
+> 说明：引擎热点路径（MFT 记录解析、索引结构）使用 `Span<T>`/`Memory<T>`、`ArrayPool<T>`、struct-of-arrays 与字符串池；这是 .NET 8 公开支持的高性能模式（`System.IO.Enumeration` 即为官方先例），可满足性能预算，无需 C++/CLI。
+
+## 进程模型
 
 ```
-CCZen.UI (标准权限)
-   │ 命名管道
-CCZen.Engine (标准权限，常驻可选：托盘 + USN 保鲜)
-   │ 命名管道（签名校验）
-CCZen.Helper (按需 UAC 提权 / 可选服务)  ← MFT 读取、系统区清理执行
+CCZen.App    (WinUI 3, 标准权限)
+   │ NamedPipe + StreamJsonRpc
+CCZen.Engine (标准权限；可选托盘常驻做 USN 保鲜)
+   │ NamedPipe（PipeSecurity ACL + 客户端签名校验，见 SAFE-FR-041）
+CCZen.Helper (按需 UAC 提权：卷句柄读取、系统区批次执行)
 ```
 
-- 无常驻模式：引擎随 UI 启停，靠索引缓存 + USN 追赶保证秒开
-- 常驻模式（用户可选）：托盘进程持续消费 USN，随时秒查
+- 无常驻模式：Engine 随 App 启停，靠索引缓存 + USN 追赶实现秒开（SCAN-FR-032）
+- 常驻模式（用户可选）：托盘进程持续消费 USN 日志
 
-## 3. 性能与资源预算
+## 性能与资源预算
 
-| 项 | 预算 |
-|----|------|
-| 索引内存（400 万文件） | < 300 MB |
-| 空闲常驻内存（托盘模式） | < 80 MB |
-| 冷全量扫描 CPU | 后台优先级，前台无感 |
-| UI 首屏（热启动） | < 1.5 s 出大文件夹总览 |
-| 安装体积 | < 30 MB（不含 WebView2 运行时） |
+| ID | 项 | 预算 | 达成手段 |
+|----|-----|------|----------|
+| ARCH-NFR-001 | 索引内存（400 万文件） | < 400 MB | struct 数组 + 字符串池；Server GC 关闭、`GCSettings.LatencyMode` 调优 |
+| ARCH-NFR-002 | 空闲常驻内存（托盘） | < 120 MB | 索引可压缩/换出到缓存文件 |
+| ARCH-NFR-003 | UI 首屏（热启动） | < 1.5 s | 缓存加载 + 增量渲染 |
+| ARCH-NFR-004 | 冷全量扫描前台影响 | 无感 | 低优先级线程/IO（SCAN-NFR-003） |
+| ARCH-NFR-005 | 安装体积 | < 80 MB（自包含）/ < 15 MB（依赖运行时） | Trimming（引擎部分）按 .NET 官方支持范围使用 |
 
-## 4. 兼容矩阵
+## 兼容矩阵
 
-- Windows 10 1809+ x64 / Windows 11 x64 + ARM64
-- 多用户机器：默认只清当前用户 + 系统区；管理员可选"所有用户"模式
-- 文件系统：NTFS（快路径）、ReFS/exFAT/FAT32（回退路径）、Dev Drive
+- Windows 10 1809+ x64、Windows 11 x64/ARM64（.NET 8 与 Windows App SDK 均官方支持 ARM64）
+- 文件系统：NTFS（快速路径）；ReFS/exFAT/FAT32/Dev Drive（回退路径，SCAN-FR-040）
+- 多用户：默认清当前用户 + 系统区；管理员可选"所有用户"
 - 长路径、非 ASCII 用户名、OneDrive Known Folder Move、企业漫游配置文件
-- 与存储感知/CCleaner 等共存：不注册冲突性钩子，检测到第三方清理器只作提示
+- 与存储感知/第三方清理器共存：不注册冲突钩子，仅提示
 
-## 5. 开发流程（ECC 准则落地）
+## 工程流程（ECC 准则落地）
 
-- **Spec 先行**：本目录是唯一需求真源；实现 PR 必须引用 spec 章节
-- **TDD（tdd-workflow skill）**：先写失败测试；覆盖率 ≥ 80%
+- **Spec 先行**：`docs/specs/` 为唯一需求真源；实现 PR 必须引用需求 ID；新增需求必须同步登记 06 追溯表
+- **TDD**（tdd-workflow skill）：先失败测试后实现；覆盖率 ≥ 80%（coverlet）
 - 测试金字塔：
-  - 单元：MFT 解析器（二进制夹具）、评分器、规则 DSL 解析
-  - 集成：VHD 虚拟卷夹具上的端到端扫描→推荐→隔离→还原
-  - E2E（windows-desktop-e2e skill）：UI 关键流程（扫描、一键清理、撤销）
-  - 性能门禁：基准数据集回归（01 §6 指标）
-- **安全审查（security-review skill）**：删除路径、提权 IPC、规则包验签相关 PR 强制走安全审查清单
+  - 单元：MFT 记录解析（二进制夹具）、评分器、规则 Schema/DSL
+  - 集成：VHDX 虚拟卷夹具（`New-VHD` 可脚本化）端到端 扫描→推荐→隔离→还原
+  - UI E2E：FlaUI/WinAppDriver（windows-desktop-e2e skill）
+  - 性能门禁：BenchmarkDotNet 基准回归（SCAN-NFR-001/002）
+- **安全审查**（security-review skill）：删除路径、提权 IPC、验签相关 PR 强制审查
 - 提交规范：`feat|fix|refactor|docs|test|chore|perf|ci: <desc>`
 
-## 6. 里程碑
+## 里程碑
 
 | 里程碑 | 内容 | 退出标准 |
 |--------|------|----------|
-| M0 POC | MFT 枚举 + 尺寸聚合 + Top-N CLI | 100 万文件 < 10 s，结果与 WizTree 一致性抽检通过 |
-| M1 扫描产品化 | USN 增量、索引缓存、非 NTFS 回退、查询服务 | 01 全部验收项 |
-| M2 规则引擎 | 发现/证据/评分管线 + 系统级 T0 规则 + 隔离区/撤销 | 02/04 golden 测试全绿 |
-| M3 适配层 | 首发 Adapter 集（03 §2）+ 规则包签名分发 | 夹具矩阵全绿 |
-| M4 UI/发布 | treemap 大文件浏览器、一键清理、撤销中心、安装器 | E2E 全绿 + 内测误删 0 |
+| M0 POC | USN 枚举 + `FSCTL_GET_NTFS_FILE_RECORD` 尺寸 + Top-N 控制台工具 | 100 万文件 < 10 s；与 WizTree 结果抽检一致 |
+| M1 扫描产品化 | USN 增量、索引缓存、回退路径、查询服务 | 01 全部验收项 |
+| M2 规则引擎 | 环境发现/证据/评分管线 + T0 系统类别 + 隔离区/撤销 | 02/04 golden 测试全绿 |
+| M3 适配层 | 首发 Adapter 集 + 规则包签名分发 | 03 夹具矩阵全绿 |
+| M4 UI/发布 | treemap 大文件浏览器、一键清理、撤销中心、MSIX 打包 | E2E 全绿 + 内测误删 0 |
 
-## 7. 开放问题（需 ADR 决议）
+## 开放问题（需 ADR 决议）
 
-- D7：UI 技术栈 WinUI 3 vs Tauri（POC 对比后定）
-- D8：常驻托盘默认开关
-- D9：重复文件全量哈希的调度策略（仅手动触发 vs 空闲自动）
-- D10：企业静默模式（v2 范围）
+- D7：托盘常驻默认开关
+- D8：重复文件全量哈希调度（仅手动 vs 空闲自动）
+- D9：企业静默模式（v2）
+- D10：索引缓存格式（自定义二进制 vs MemoryPack 等库）——M1 前 spike 决定
+
+## 另请参阅
+
+- [.NET 应用发布与部署](https://learn.microsoft.com/dotnet/core/deploying/)
+- [Windows App SDK 系统要求](https://learn.microsoft.com/windows/apps/windows-app-sdk/system-requirements)
+- 06 追溯表条目 T-01 ~ T-08
