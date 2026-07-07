@@ -105,11 +105,20 @@ foreach (FileEntry entry in index.TopDirectories(top))
 
 return 0;
 
-static int RunRecommend()
+// Adapter hits take over generic heuristic hits on the same paths (ADPT-FR-006).
+static IReadOnlyList<Recommendation> EvaluateAll()
 {
     EnvironmentModel environment = EnvironmentDiscovery.Discover();
-    var engine = new RuleEngine(environment, BaselineRulePack.Load());
-    IReadOnlyList<Recommendation> recommendations = engine.Evaluate();
+    IReadOnlyList<Recommendation> adapterHits =
+        new AdapterEngine(environment, BaselineAdapterPack.Load()).Evaluate();
+    IReadOnlyList<Recommendation> genericHits =
+        new RuleEngine(environment, BaselineRulePack.Load()).Evaluate();
+    return AdapterEngine.Merge(adapterHits, genericHits);
+}
+
+static int RunRecommend()
+{
+    IReadOnlyList<Recommendation> recommendations = EvaluateAll();
 
     foreach (var group in recommendations.GroupBy(r => r.Tier).OrderBy(g => g.Key))
     {
@@ -127,9 +136,7 @@ static int RunRecommend()
 
 static int RunClean(bool autoConfirm)
 {
-    EnvironmentModel environment = EnvironmentDiscovery.Discover();
-    IReadOnlyList<Recommendation> recommendations =
-        new RuleEngine(environment, BaselineRulePack.Load()).Evaluate();
+    IReadOnlyList<Recommendation> recommendations = EvaluateAll();
     var protection = new ProtectedPaths();
     BatchPlan plan = CleanupPlanner.Plan(recommendations, protection);
 

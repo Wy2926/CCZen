@@ -25,6 +25,11 @@ public static class CleanupPlanner
         var items = new List<PlanItem>();
         foreach (Recommendation recommendation in recommendations)
         {
+            if (recommendation.Action == "report-only")
+            {
+                continue;
+            }
+
             bool eligible = recommendation.Tier is Tier.T0 or Tier.T1
                 || (recommendation.Tier == Tier.T2 &&
                     confirmedT2Paths?.Contains(recommendation.Path) == true);

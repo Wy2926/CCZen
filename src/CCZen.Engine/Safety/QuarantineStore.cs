@@ -70,6 +70,15 @@ public sealed class QuarantineStore
             return new ItemResult(item.Path, ItemOutcome.SkippedFingerprintMismatch, null, "size/mtime changed since plan (SAFE-FR-011)");
         }
 
+        if (!item.IsDirectory && OperatingSystem.IsWindowsVersionAtLeast(6))
+        {
+            IReadOnlyList<string> holders = LockProbe.GetLockingProcesses([item.Path]);
+            if (holders.Count > 0)
+            {
+                return new ItemResult(item.Path, ItemOutcome.SkippedLocked, null, $"in use by: {string.Join(", ", holders)} (SAFE-FR-021)");
+            }
+        }
+
         string? volumeRoot = Path.GetPathRoot(item.Path);
         if (volumeRoot is null)
         {
