@@ -29,6 +29,12 @@ public sealed class AdapterEngine
                 continue;
             }
 
+            // ADPT-FR-002: configProbe binds extra symbols (e.g. user-migrated data dirs).
+            IReadOnlyDictionary<string, string> probedSymbols = RunConfigProbes(adapter);
+
+            // ADPT-FR-005: installed version outside verifiedVersions → demote all items one tier.
+            bool demote = IsVersionOutsideVerifiedRange(adapter);
+
             bool appRunning = adapter.Detect.ProcessNames?
                 .Any(p => _environment.RunningProcesses.Contains(p)) == true;
 
@@ -36,7 +42,7 @@ public sealed class AdapterEngine
             {
                 foreach (string target in item.Targets)
                 {
-                    foreach (string path in ExpandItemTarget(target))
+                    foreach (string path in ExpandItemTarget(target, probedSymbols))
                     {
                         if (!claimed.Add(path))
                         {
@@ -51,12 +57,18 @@ public sealed class AdapterEngine
 
                         // ADPT-FR-004: app running → report-only, never delete.
                         bool blocked = item.RequiresAppNotRunning && appRunning;
+                        Tier tier = Enum.Parse<Tier>(item.Tier);
+                        if (demote)
+                        {
+                            tier = tier switch { Tier.T0 => Tier.T1, Tier.T1 => Tier.T2, _ => Tier.T3 };
+                        }
+
                         recommendations.Add(new Recommendation(
                             path,
                             IsDirectory: Directory.Exists(path),
                             size,
                             RuleId: $"{adapter.Id}/{item.Id}",
-                            Enum.Parse<Tier>(item.Tier),
+                            tier,
                             Confidence: blocked ? 0 : 0.9,
                             Action: blocked ? "report-only" : "quarantine",
                             Explain: blocked ? $"{item.Explain}（{adapter.Name} 正在运行，仅提示）" : item.Explain,
@@ -112,10 +124,53 @@ public sealed class AdapterEngine
         return false;
     }
 
-    /// <summary>Expands a symbolized target; a trailing "\*" enumerates immediate children (per-profile items).</summary>
-    private IEnumerable<string> ExpandItemTarget(string target)
+    private IReadOnlyDictionary<string, string> RunConfigProbes(Adapter adapter)
     {
-        string normalized = target.Replace('/', '\\');
+        if (adapter.Detect.ConfigProbes is not { Count: > 0 } probes)
+        {
+            return new Dictionary<string, string>();
+        }
+
+        var bound = new Dictionary<string, string>();
+        foreach (ConfigProbe probe in probes)
+        {
+            if (ConfigProbeReader.Read(probe, _environment) is { Length: > 0 } value)
+            {
+                bound[probe.Symbol] = Path.TrimEndingDirectorySeparator(value);
+            }
+        }
+
+        return bound;
+    }
+
+    /// <summary>ADPT-FR-005: true when the installed version falls outside "min-max" (inclusive).</summary>
+    private bool IsVersionOutsideVerifiedRange(Adapter adapter)
+    {
+        if (adapter.VerifiedVersions is null ||
+            adapter.Detect.UninstallNamePatterns is not { Count: > 0 } patterns)
+        {
+            return false;
+        }
+
+        InstalledApp? app = _environment.InstalledApps.FirstOrDefault(a =>
+            patterns.Any(p => a.Name.Contains(p, StringComparison.OrdinalIgnoreCase)));
+        if (app?.Version is null || !Version.TryParse(Pad(app.Version), out Version? installed))
+        {
+            return false;
+        }
+
+        string[] range = adapter.VerifiedVersions.Split('-', 2);
+        bool belowMin = Version.TryParse(Pad(range[0]), out Version? min) && installed < min;
+        bool aboveMax = range.Length == 2 && Version.TryParse(Pad(range[1]), out Version? max) && installed > max;
+        return belowMin || aboveMax;
+
+        static string Pad(string v) => v.Contains('.') ? v : v + ".0";
+    }
+
+    /// <summary>Expands a symbolized target; a trailing "\*" enumerates immediate children (per-profile items).</summary>
+    private IEnumerable<string> ExpandItemTarget(string target, IReadOnlyDictionary<string, string> extraSymbols)
+    {
+        string normalized = ApplyExtraSymbols(target.Replace('/', '\\'), extraSymbols);
         bool perChild = normalized.EndsWith("\\*", StringComparison.Ordinal);
         int wildcard = normalized.IndexOf("\\*\\", StringComparison.Ordinal);
 
@@ -161,6 +216,17 @@ public sealed class AdapterEngine
         {
             yield return expanded;
         }
+    }
+
+    /// <summary>Substitutes probe-bound symbols before the environment expands the rest.</summary>
+    private static string ApplyExtraSymbols(string target, IReadOnlyDictionary<string, string> extraSymbols)
+    {
+        foreach ((string symbol, string value) in extraSymbols)
+        {
+            target = target.Replace("${" + symbol + "}", value, StringComparison.Ordinal);
+        }
+
+        return target;
     }
 
     private static (long Size, DateTime LastWriteUtc) MeasureTree(string path)
