@@ -5,7 +5,7 @@ using CCZen.Engine.Scanning;
 if (args.Length < 1 || args[0] is "-h" or "--help")
 {
     Console.WriteLine("CCZen M0 POC — NTFS fast scan (spec: docs/specs/01-scan-engine.md)");
-    Console.WriteLine("Usage: cczen <root> [--top N] [--mode auto|usn|fallback]");
+    Console.WriteLine("Usage: cczen <root> [--top N] [--mode auto|usn|fallback] [--cache <file>]");
     Console.WriteLine("Example: cczen C: --top 20");
     return 1;
 }
@@ -13,6 +13,7 @@ if (args.Length < 1 || args[0] is "-h" or "--help")
 string root = args[0].Length == 2 && args[0][1] == ':' ? args[0] + "\\" : args[0];
 int top = 20;
 string mode = "auto";
+string? cachePath = null;
 for (int i = 1; i < args.Length - 1; i++)
 {
     if (args[i] == "--top")
@@ -22,6 +23,10 @@ for (int i = 1; i < args.Length - 1; i++)
     else if (args[i] == "--mode")
     {
         mode = args[i + 1];
+    }
+    else if (args[i] == "--cache")
+    {
+        cachePath = args[i + 1];
     }
 }
 
@@ -34,10 +39,21 @@ IVolumeScanner scanner = mode switch
 
 Console.WriteLine($"Scanning {root} using {scanner.GetType().Name} ...");
 var stopwatch = Stopwatch.StartNew();
-FileSystemIndex index = scanner.Scan(root);
+FileSystemIndex index;
+bool incremental = false;
+if (cachePath is not null && scanner is UsnJournalScanner usn)
+{
+    (index, incremental) = usn.ScanWithCache(root, cachePath);
+}
+else
+{
+    index = scanner.Scan(root);
+}
+
 stopwatch.Stop();
 
-Console.WriteLine($"Indexed {index.Count:N0} entries ({index.FileCount:N0} files) in {stopwatch.Elapsed.TotalSeconds:F2} s");
+string how = incremental ? " (incremental USN catch-up)" : string.Empty;
+Console.WriteLine($"Indexed {index.Count:N0} entries ({index.FileCount:N0} files) in {stopwatch.Elapsed.TotalSeconds:F2} s{how}");
 Console.WriteLine($"Total logical size: {Format(index.TotalLogicalSize)}, allocated: {Format(index.TotalAllocatedSize)}");
 
 Console.WriteLine($"\nTop {top} files (by allocated size):");
