@@ -11,7 +11,7 @@ if (args.Length < 1 || args[0] is "-h" or "--help")
 {
     Console.WriteLine("CCZen M0 POC — NTFS fast scan (spec: docs/specs/01-scan-engine.md)");
     Console.WriteLine("Usage: cczen <root> [--top N] [--mode auto|usn|fallback|client] [--cache <file>]");
-    Console.WriteLine("       cczen recommend                 # 规则引擎清理推荐 (specs/02)");
+    Console.WriteLine("       cczen recommend [--client]      # 规则引擎清理推荐 (specs/02；--client 走服务)");
     Console.WriteLine("       cczen clean [--yes]             # T0/T1 推荐项 → 隔离区 (specs/04)");
     Console.WriteLine("       cczen restore <卷> <batchId>    # 按批次还原隔离区");
     Console.WriteLine("       cczen batches [卷]              # 列出隔离区批次");
@@ -22,7 +22,7 @@ if (args.Length < 1 || args[0] is "-h" or "--help")
 
 if (args[0] == "recommend")
 {
-    return RunRecommend();
+    return args.Contains("--client") ? await RunRecommendClientAsync() : RunRecommend();
 }
 
 if (args[0] == "clean")
@@ -118,8 +118,12 @@ static IReadOnlyList<Recommendation> EvaluateAll()
 
 static int RunRecommend()
 {
-    IReadOnlyList<Recommendation> recommendations = EvaluateAll();
+    PrintRecommendations(EvaluateAll());
+    return 0;
+}
 
+static void PrintRecommendations(IReadOnlyList<Recommendation> recommendations)
+{
     foreach (var group in recommendations.GroupBy(r => r.Tier).OrderBy(g => g.Key))
     {
         Console.WriteLine($"\n[{group.Key}] {group.Count()} 项, 共 {Format(group.Sum(r => r.SizeBytes))}");
@@ -131,7 +135,6 @@ static int RunRecommend()
     }
 
     Console.WriteLine($"\n合计可清理: {Format(recommendations.Sum(r => r.SizeBytes))} ({recommendations.Count} 项)");
-    return 0;
 }
 
 static int RunClean(bool autoConfirm)
@@ -207,16 +210,42 @@ static int RunBatches(string volume)
     return 0;
 }
 
-static async Task<int> RunClientAsync(string root, int top)
+static async Task<NamedPipeClientStream?> ConnectPipeAsync()
 {
-    using var pipe = new NamedPipeClientStream(".", "cczen-engine", PipeDirection.InOut, PipeOptions.Asynchronous);
+    var pipe = new NamedPipeClientStream(".", "cczen-engine", PipeDirection.InOut, PipeOptions.Asynchronous);
     try
     {
         await pipe.ConnectAsync(3000);
+        return pipe;
     }
     catch (TimeoutException)
     {
+        await pipe.DisposeAsync();
         Console.Error.WriteLine("Cannot reach CCZen.Service on \\\\.\\pipe\\cczen-engine. Start it first: dotnet run --project src\\CCZen.Service");
+        return null;
+    }
+}
+
+static async Task<int> RunRecommendClientAsync()
+{
+    await using NamedPipeClientStream? pipe = await ConnectPipeAsync();
+    if (pipe is null)
+    {
+        return 2;
+    }
+
+    using var rpc = JsonRpc.Attach(pipe);
+    var engine = rpc.Attach<IEngineRpc>();
+    IReadOnlyList<Recommendation> recommendations = await engine.RecommendAsync(CancellationToken.None);
+    PrintRecommendations(recommendations);
+    return 0;
+}
+
+static async Task<int> RunClientAsync(string root, int top)
+{
+    await using NamedPipeClientStream? pipe = await ConnectPipeAsync();
+    if (pipe is null)
+    {
         return 2;
     }
 
