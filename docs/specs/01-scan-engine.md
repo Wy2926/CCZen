@@ -1,99 +1,89 @@
-# Spec 01 — 扫描引擎（秒级全盘索引）
+---
+title: CCZen 扫描引擎规范
+description: 基于 NTFS USN/MFT 的秒级全卷索引、目录大小聚合与增量维护的功能与非功能需求。
+ms.topic: reference
+ms.date: 2026-07-07
+status: Draft v0.2
+applies-to: Windows 10 版本 1809 及更高版本；NTFS 卷（快速路径）、FAT32/exFAT/ReFS（回退路径）
+---
 
-> 目标：达到 Everything 级别的扫描/查询速度——全盘大文件、大文件夹秒出。
+# 扫描引擎规范
 
-## 1. 为什么传统扫描慢
+扫描引擎为规则引擎与 UI 提供全卷文件索引与尺寸聚合查询。目标：达到 Everything/WizTree 级别的建索引与查询速度。所有 API 均为微软公开文档记载的 API；.NET 侧通过 [CsWin32](https://github.com/microsoft/CsWin32) 源生成器进行 P/Invoke。
 
-传统清理软件用 `FindFirstFile/FindNextFile` 递归遍历目录树：每个目录一次或多次系统调用、随机 I/O、受目录深度与反病毒过滤驱动拖累，百万文件级机器通常需要几分钟。
+## 背景：为什么不遍历目录树
 
-Everything 快的本质：**不遍历目录树，直接读 NTFS 的主文件表（MFT）**。MFT 是卷上所有文件元数据的连续结构，顺序读取 + 内存重建父子关系，百万文件仅需数秒；之后靠 **USN 变更日志** 增量维护，永不重扫。
+递归 `FindFirstFile`/`Directory.EnumerateFiles` 对每个目录产生系统调用与随机 I/O，百万文件量级耗时数分钟。Everything 官方 FAQ 明确记载其速度来自**读取 NTFS 主文件表（MFT）与 USN 变更日志**而非遍历目录（见 06 追溯表 F-01）。WizTree 采用同一技术实现秒级空间分析。CCZen 采用同一路线。
 
-CCZen 采用同一原理，并在其上增加清理软件需要的**尺寸聚合**能力。
+## 功能需求 — NTFS 快速路径
 
-## 2. NTFS 快速路径（主路径）
+| ID | 需求 | 级别 |
+|----|------|------|
+| SCAN-FR-001 | 引擎**必须**通过 `DeviceIoControl` + [`FSCTL_ENUM_USN_DATA`](https://learn.microsoft.com/windows/win32/api/winioctl/ni-winioctl-fsctl_enum_usn_data) 按 FRN 顺序批量枚举 NTFS 卷全部文件/目录记录（`USN_RECORD_V2/V3`：FRN、父 FRN、文件名、属性），单次调用使用 ≥ 1 MB 输出缓冲区 | MUST |
+| SCAN-FR-002 | 卷句柄**必须**以 `CreateFileW("\\\\.\\C:", FILE_READ_DATA \| FILE_READ_ATTRIBUTES, ...)` 打开；该操作需要管理员权限，由 CCZen.Helper 进程执行（见 04 权限模型） | MUST |
+| SCAN-FR-003 | 文件尺寸**必须**通过 [`FSCTL_GET_NTFS_FILE_RECORD`](https://learn.microsoft.com/windows/win32/api/winioctl/ni-winioctl-fsctl_get_ntfs_file_record) 批量读取 MFT 文件记录，解析 `$STANDARD_INFORMATION`/`$FILE_NAME`/`$DATA` 属性获得逻辑大小与分配大小（该 FSCTL 顺序读取时等效于顺序扫描 $MFT，WizTree 同类实现先例见 06 F-03） | MUST |
+| SCAN-FR-004 | 尺寸解析失败的记录**必须**回退到 [`GetFileInformationByHandleEx(FileIdBothDirectoryInfo)`](https://learn.microsoft.com/windows/win32/api/winbase/nf-winbase-getfileinformationbyhandleex) 按目录批量补齐 | MUST |
+| SCAN-FR-005 | 多 NTFS 卷**应**并行建索引（每卷一个工作线程，`Task`/`Channel` 调度） | SHOULD |
 
-### 2.1 全量枚举
+### 尺寸统计口径
 
-- 通过 `DeviceIoControl(FSCTL_ENUM_USN_DATA)` 按 FRN（File Reference Number）顺序批量枚举卷上全部文件/目录记录（`USN_RECORD_V2/V3`），每次调用取大缓冲（≥ 1 MB）
-- 每条记录提取：FRN、父 FRN、文件名、属性（目录/隐藏/系统/稀疏/压缩/重解析点）
-- 需要卷句柄读权限 → **需要管理员权限**（见 §5 回退与 05 权限模型）
-- 多卷并行：每个 NTFS 卷一个枚举线程
+| ID | 需求 | 级别 |
+|----|------|------|
+| SCAN-FR-010 | 硬链接（同一 FRN 多个 `$FILE_NAME`）占用**必须**按 FRN 去重只计一次，UI 标注链接数（链接数可由 [`GetFileInformationByHandle`](https://learn.microsoft.com/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandle) 的 `nNumberOfLinks` 验证） | MUST |
+| SCAN-FR-011 | 稀疏/压缩文件**必须**以分配大小（真实占盘）为默认统计口径，逻辑大小并列展示；单文件校验可用 [`GetCompressedFileSizeW`](https://learn.microsoft.com/windows/win32/api/fileapi/nf-fileapi-getcompressedfilesizew) | MUST |
+| SCAN-FR-012 | 重解析点（junction/symlink，`FILE_ATTRIBUTE_REPARSE_POINT`）**必须**不跟随、不重复计数 | MUST |
+| SCAN-FR-013 | 云占位文件（`FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS`，OneDrive 按需文件）占用**必须**按本地分配大小统计 | MUST |
+| SCAN-FR-014 | NTFS 备用数据流（ADS）v1 计入所属文件分配大小，**可以**不单独枚举 | MAY |
 
-### 2.2 尺寸获取
+### 索引与聚合
 
-`FSCTL_ENUM_USN_DATA` 记录不含文件大小，两种策略按需组合：
+| ID | 需求 | 级别 |
+|----|------|------|
+| SCAN-FR-020 | 索引**必须**采用值类型结构数组（struct-of-arrays）+ 字符串池存储；禁止每文件一个托管对象（GC 压力控制，见 05 内存预算） | MUST |
+| SCAN-FR-021 | 全量枚举完成后**必须**做一次自底向上聚合：每目录的累计逻辑/分配大小、文件数、最新修改时间 | MUST |
+| SCAN-FR-022 | **必须**提供查询：Top-N 大文件、Top-N 大文件夹、目录子树钻取（treemap 数据源）、glob 路径匹配（供规则引擎）；全部在内存索引上执行 | MUST |
+| SCAN-FR-023 | 查询与增量更新**必须**并发安全（快照或 `ReaderWriterLockSlim`） | MUST |
 
-| 策略 | 说明 | 用途 |
-|------|------|------|
-| A. 原始 MFT 解析 | 以卷句柄直读 `$MFT`，解析 FILE 记录的 `$STANDARD_INFORMATION` + `$FILENAME` + `$DATA` 属性，得到逻辑大小与**分配大小**（含稀疏/压缩实际占用） | 首选，一次顺序读全部拿齐，WizTree 同款 |
-| B. 批量 `NtQueryDirectoryFile` 补齐 | 对枚举出的目录批量查询 `FileDirectoryInformation`（大缓冲） | MFT 解析失败/异常卷的兜底 |
+### USN 增量维护与缓存
 
-补充规则：
-- **硬链接**：同一 FRN 多个文件名，占用只计一次（按 FRN 去重），UI 标注
-- **稀疏/压缩/去重文件**：统计口径默认"分配大小"（真实占盘），逻辑大小并列展示
-- **重解析点**（junction/symlink/OneDrive 云占位）：不跟随、不重复计数；云占位文件（`FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS`）占用按本地实际分配计
-- **NTFS 备用数据流（ADS）**：v1 计入所属文件分配大小，不单独枚举
+| ID | 需求 | 级别 |
+|----|------|------|
+| SCAN-FR-030 | 全量枚举结束时**必须**记录 [`FSCTL_QUERY_USN_JOURNAL`](https://learn.microsoft.com/windows/win32/api/winioctl/ni-winioctl-fsctl_query_usn_journal) 返回的 `UsnJournalID` 与 `NextUsn` 水位 | MUST |
+| SCAN-FR-031 | 后台**必须**通过 [`FSCTL_READ_USN_JOURNAL`](https://learn.microsoft.com/windows/win32/api/winioctl/ni-winioctl-fsctl_read_usn_journal) 消费创建/删除/改名/扩展变更记录，实时更新索引并沿父链传播尺寸差量 | MUST |
+| SCAN-FR-032 | 索引**必须**支持落盘缓存（含 USN 水位与校验和）；启动时加载缓存 → 读日志追赶 → 秒级就绪 | MUST |
+| SCAN-FR-033 | 日志被截断（`ERROR_JOURNAL_ENTRY_DELETED`）、JournalID 变化或缓存校验失败时**必须**自动全量重建 | MUST |
+| SCAN-FR-034 | 卷未启用 USN 日志时**必须**能通过 [`FSCTL_CREATE_USN_JOURNAL`](https://learn.microsoft.com/windows/win32/api/winioctl/ni-winioctl-fsctl_create_usn_journal) 创建（需用户知情同意，日志占用少量磁盘空间） | MUST |
 
-### 2.3 内存索引结构
+## 功能需求 — 回退路径（非 NTFS / 无管理员）
 
-- 节点数组（按 FRN 哈希或紧凑重映射为连续下标），字段：父下标、名称（字符串池 + UTF-16→UTF-8，去重）、标志位、逻辑大小、分配大小、修改/访问时间
-- 目录树通过父下标隐式表达；子节点链表或排序后的区段索引
-- 预算：每文件 ≤ 64 B（不含名称池）；400 万文件 < 300 MB（含名称池）
+| ID | 需求 | 级别 |
+|----|------|------|
+| SCAN-FR-040 | 非 NTFS 卷或无提权时**必须**回退为并行目录遍历：.NET [`FileSystemEnumerable<T>`](https://learn.microsoft.com/dotnet/api/system.io.enumeration.filesystemenumerable-1)（底层批量 `NtQueryDirectoryFile`，零额外分配）+ 每卷工作队列 | MUST |
+| SCAN-FR-041 | 卷类型**必须**通过 [`GetVolumeInformationW`](https://learn.microsoft.com/windows/win32/api/fileapi/nf-fileapi-getvolumeinformationw) 判定；HDD（`DeviceIoControl(IOCTL_STORAGE_QUERY_PROPERTY)` 的 SeekPenalty 判定）遍历并发度**应**降为 1–2 | MUST/SHOULD |
+| SCAN-FR-042 | 回退路径**必须**使用与快速路径相同的索引结构与聚合逻辑（仅速度降级） | MUST |
+| SCAN-FR-043 | 长路径**必须**全程使用 `\\?\` 前缀方式处理（.NET 4.6.2+/Core 原生支持长路径） | MUST |
+| SCAN-FR-044 | 网络驱动器**必须**默认不扫描，需用户显式勾选 | MUST |
 
-### 2.4 目录大小聚合
+## 非功能需求
 
-- 全量枚举完成后做一次**自底向上拓扑聚合**：每个目录的累计逻辑/分配大小、文件数、最新修改时间
-- 聚合结果支持两类秒级查询：
-  - **Top-N 大文件**：对文件大小做一次部分排序（或维护 size 桶）→ < 100 ms
-  - **Top-N 大文件夹 / 树形钻取（treemap）**：直接读聚合字段
-- 增量更新时沿父链向上传播尺寸差量，避免全量重聚合
+| ID | 需求 |
+|----|------|
+| SCAN-NFR-001 | 冷全量：100 万文件 NVMe < 10 s；500 万文件 < 45 s（管理员 + NTFS） |
+| SCAN-NFR-002 | 热启动 < 1 s；Top-N 查询 < 100 ms |
+| SCAN-NFR-003 | 扫描线程必须以低优先级运行：`Thread.Priority = Lowest` + [`SetThreadIOPriorityHint`（`SetThreadInformation` + `MEMORY_PRIORITY_INFORMATION`/IO 优先级）](https://learn.microsoft.com/windows/win32/api/processthreadsapi/nf-processthreadsapi-setthreadinformation)，前台无感 |
+| SCAN-NFR-004 | 扫描过程零写入被扫卷；缓存写入 `%LOCALAPPDATA%\CCZen` |
+| SCAN-NFR-005 | 卷热插拔、卷锁定、缓存损坏必须优雅降级为重建，不崩溃 |
 
-### 2.5 USN 增量维护
+## 测试要求
 
-- 记录全量枚举结束时的 `UsnJournalID` + `NextUsn`
-- 后台线程 `FSCTL_READ_USN_JOURNAL` 持续消费变更（创建/删除/改名/大小变化），实时更新索引与聚合
-- **索引落盘缓存**：退出时序列化索引 + USN 水位；下次启动加载缓存 → 读日志追赶 → 秒级就绪
-- 日志被截断/JournalID 变化/卷簇大小变化 → 自动全量重建
+- 用 VHDX 虚拟磁盘构造测试卷夹具（`New-VHD`/diskpart 脚本，CI 可自动挂载）：硬链接、稀疏、压缩、junction 环、长路径、非 ASCII/emoji 文件名
+- MFT 解析结果与 `FileInfo`/`GetFileInformationByHandle` 抽样比对一致率 ≥ 99.99%
+- USN 增量一致性：随机文件操作风暴后索引与文件系统 diff 为零
+- BenchmarkDotNet 基准固化进 CI 作为性能回归门禁
 
-## 3. 非 NTFS 回退路径
+## 另请参阅
 
-适用：FAT32/exFAT U 盘、ReFS、网络盘、无管理员权限时的 NTFS。
-
-- 并行目录遍历器：每卷一个工作队列 + I/O 线程池（线程数 = min(CPU, 8)，HDD 降为 1~2 防抖动）
-- 使用 `NtQueryDirectoryFile` + 大缓冲（64 KB+）批量取目录项，显著少于逐文件系统调用
-- 同一索引结构、同一聚合逻辑；仅速度降级，功能不降级
-- 网络盘默认不自动扫描（需用户显式勾选）
-
-## 4. 查询服务
-
-索引对上层（规则引擎、UI）提供统一查询接口：
-
-- `top_files(n, filter)` / `top_dirs(n, filter)`：大文件、大文件夹
-- `subtree(path)`：目录钻取（treemap 数据源）
-- `glob/regex 路径匹配`：供规则引擎批量定位候选（如 `**/cache/**`），在内存索引上执行，不触盘
-- `stat(path)`：单点查询
-- 所有查询只读、可并发，与 USN 更新用轻量读写锁/快照隔离
-
-## 5. 权限与降级矩阵
-
-| 环境 | 路径 | 体验 |
-|------|------|------|
-| 管理员 + NTFS | MFT 全量 + USN 增量 | 秒级（目标体验） |
-| 非管理员 + NTFS | 目录遍历回退；提示"提权可提速 10 倍+" | 分钟级 |
-| 非 NTFS 卷 | 目录遍历 | 视卷大小 |
-| BitLocker 已解锁卷 | 同 NTFS（透明） | 秒级 |
-
-## 6. 性能与健壮性要求
-
-- 冷全量：100 万文件 NVMe < 10 s；500 万文件 < 45 s
-- 热启动：缓存加载 + USN 追赶 < 1 s
-- 扫描线程全部低优先级 I/O（`SetPriorityClass` + `FileBasicInfo` I/O 优先级 hint），不影响前台
-- 卷热插拔、卷被锁、日志溢出、缓存损坏（校验和）均须优雅降级为重建
-- 扫描全程零写入被扫卷（缓存写入应用数据目录）
-
-## 7. 测试要点
-
-- 构造卷镜像夹具：硬链接、稀疏、压缩、junction 环、云占位、超长路径（>260，启用 `\\?\` 前缀与 LongPathsEnabled 兼容）、非 ASCII/emoji 文件名
-- MFT 解析结果与 `GetFileInformationByHandle` 抽样比对（≥ 99.99% 一致）
-- USN 增量一致性：随机文件操作风暴后索引与真实文件系统 diff 为零
-- 基准测试固化进 CI（性能回归门禁）
+- [Change Journals（变更日志）概述](https://learn.microsoft.com/windows/win32/fileio/change-journals)
+- [Walking a Buffer of Change Journal Records（官方示例）](https://learn.microsoft.com/windows/win32/fileio/walking-a-buffer-of-change-journal-records)
+- [Master File Table（MFT）](https://learn.microsoft.com/windows/win32/fileio/master-file-table)
+- 06 追溯表条目 F-01 ~ F-12
