@@ -1,12 +1,16 @@
 using System.Diagnostics;
+using System.IO.Pipes;
 using CCZen.Engine.Index;
 using CCZen.Engine.Scanning;
+using CCZen.Engine.Service;
+using StreamJsonRpc;
 
 if (args.Length < 1 || args[0] is "-h" or "--help")
 {
     Console.WriteLine("CCZen M0 POC — NTFS fast scan (spec: docs/specs/01-scan-engine.md)");
-    Console.WriteLine("Usage: cczen <root> [--top N] [--mode auto|usn|fallback] [--cache <file>]");
+    Console.WriteLine("Usage: cczen <root> [--top N] [--mode auto|usn|fallback|client] [--cache <file>]");
     Console.WriteLine("Example: cczen C: --top 20");
+    Console.WriteLine("        --mode client queries a running CCZen.Service over \\\\.\\pipe\\cczen-engine");
     return 1;
 }
 
@@ -28,6 +32,11 @@ for (int i = 1; i < args.Length - 1; i++)
     {
         cachePath = args[i + 1];
     }
+}
+
+if (mode == "client")
+{
+    return await RunClientAsync(root, top);
 }
 
 IVolumeScanner scanner = mode switch
@@ -69,6 +78,42 @@ foreach (FileEntry entry in index.TopDirectories(top))
 }
 
 return 0;
+
+static async Task<int> RunClientAsync(string root, int top)
+{
+    using var pipe = new NamedPipeClientStream(".", "cczen-engine", PipeDirection.InOut, PipeOptions.Asynchronous);
+    try
+    {
+        await pipe.ConnectAsync(3000);
+    }
+    catch (TimeoutException)
+    {
+        Console.Error.WriteLine("Cannot reach CCZen.Service on \\\\.\\pipe\\cczen-engine. Start it first: dotnet run --project src\\CCZen.Service");
+        return 2;
+    }
+
+    using var rpc = JsonRpc.Attach(pipe);
+    var engine = rpc.Attach<IEngineRpc>();
+
+    ScanSummary summary = await engine.ScanAsync(root, useCache: true, CancellationToken.None);
+    string how = summary.Incremental ? " (incremental USN catch-up)" : string.Empty;
+    Console.WriteLine($"Indexed {summary.EntryCount:N0} entries ({summary.FileCount:N0} files) in {summary.ElapsedSeconds:F2} s{how}");
+    Console.WriteLine($"Total logical size: {Format(summary.TotalLogicalSize)}, allocated: {Format(summary.TotalAllocatedSize)}");
+
+    Console.WriteLine($"\nTop {top} files (by allocated size):");
+    foreach (FileEntry entry in await engine.GetTopFilesAsync(top, CancellationToken.None))
+    {
+        Console.WriteLine($"  {Format(entry.AllocatedSize),10}  {entry.Path}");
+    }
+
+    Console.WriteLine($"\nTop {top} directories (by allocated subtree size):");
+    foreach (FileEntry entry in await engine.GetTopDirectoriesAsync(top, CancellationToken.None))
+    {
+        Console.WriteLine($"  {Format(entry.AllocatedSize),10}  {entry.FileCount,9:N0} files  {entry.Path}");
+    }
+
+    return 0;
+}
 
 static string Format(long bytes) => bytes switch
 {

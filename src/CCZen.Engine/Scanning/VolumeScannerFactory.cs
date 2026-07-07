@@ -12,6 +12,14 @@ public static class VolumeScannerFactory
     /// </summary>
     public static IVolumeScanner Create(string root)
     {
+        // The USN fast path always enumerates the whole volume, so it only
+        // applies when the requested root is the volume root itself.
+        bool isVolumeRoot = root.Length <= 3 && root.Length >= 2 && root[1] == ':';
+        if (!isVolumeRoot)
+        {
+            return new FallbackScanner();
+        }
+
         var drive = new DriveInfo(root);
         bool isNtfs = string.Equals(drive.DriveFormat, "NTFS", StringComparison.OrdinalIgnoreCase);
         return isNtfs && IsElevated() ? new UsnJournalScanner() : new FallbackScanner();
