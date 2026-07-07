@@ -97,8 +97,8 @@ foreach (FileEntry entry in index.TopFiles(top))
     Console.WriteLine($"  {Format(entry.AllocatedSize),10}  {entry.Path}");
 }
 
-Console.WriteLine($"\nTop {top} directories (by allocated subtree size):");
-foreach (FileEntry entry in index.TopDirectories(top))
+Console.WriteLine($"\nTop {top} directories (by allocated subtree size, ancestor chains collapsed):");
+foreach (FileEntry entry in index.TopDistinctDirectories(top))
 {
     Console.WriteLine($"  {Format(entry.AllocatedSize),10}  {entry.FileCount,9:N0} files  {entry.Path}");
 }
@@ -263,8 +263,8 @@ static async Task<int> RunClientAsync(string root, int top)
         Console.WriteLine($"  {Format(entry.AllocatedSize),10}  {entry.Path}");
     }
 
-    Console.WriteLine($"\nTop {top} directories (by allocated subtree size):");
-    foreach (FileEntry entry in await engine.GetTopDirectoriesAsync(top, CancellationToken.None))
+    Console.WriteLine($"\nTop {top} directories (by allocated subtree size, ancestor chains collapsed):");
+    foreach (FileEntry entry in await engine.GetTopDistinctDirectoriesAsync(top, CancellationToken.None))
     {
         Console.WriteLine($"  {Format(entry.AllocatedSize),10}  {entry.FileCount,9:N0} files  {entry.Path}");
     }

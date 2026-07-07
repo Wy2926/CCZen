@@ -91,6 +91,66 @@ public sealed class FileSystemIndex
     public IReadOnlyList<FileEntry> TopDirectories(int count) =>
         TopBy(count, i => _isDirectory[i], i => _subtreeAllocated[i]);
 
+    /// <summary>
+    /// Largest directories with ancestor chains collapsed (SCAN-FR-024): a
+    /// directory is suppressed when a single child directory accounts for at
+    /// least <paramref name="dominanceThreshold"/> of its subtree size — the
+    /// child carries the information. The scan root itself is always excluded.
+    /// </summary>
+    public IReadOnlyList<FileEntry> TopDistinctDirectories(int count, double dominanceThreshold = 0.7)
+    {
+        long[] largestChildDir = new long[_parent.Length];
+        for (int i = 0; i < _parent.Length; i++)
+        {
+            int p = _parent[i];
+            if (p >= 0 && _isDirectory[i] && _subtreeAllocated[i] > largestChildDir[p])
+            {
+                largestChildDir[p] = _subtreeAllocated[i];
+            }
+        }
+
+        bool IsDistinct(int i) =>
+            _isDirectory[i] &&
+            _parent[i] >= 0 &&
+            largestChildDir[i] < _subtreeAllocated[i] * dominanceThreshold;
+
+        return TopBy(count, IsDistinct, i => _subtreeAllocated[i]);
+    }
+
+    /// <summary>
+    /// Conditional query over the in-memory index (SCAN-FR-025): returns the
+    /// largest files and/or directories matching a minimum size and an
+    /// optional case-insensitive name fragment (e.g. an extension like ".iso"
+    /// or a folder name). Directories use collapsed-chain semantics.
+    /// </summary>
+    public IReadOnlyList<FileEntry> Search(SearchQuery query)
+    {
+        IReadOnlyList<FileEntry> files = query.Kind is SearchKind.Files or SearchKind.All
+            ? TopBy(query.MaxResults, i => !_isDirectory[i] && MatchesQuery(i, query, _allocatedSize[i]), i => _allocatedSize[i])
+            : [];
+        IReadOnlyList<FileEntry> directories = query.Kind is SearchKind.Directories or SearchKind.All
+            ? TopDistinctDirectoriesMatching(query)
+            : [];
+
+        return files.Concat(directories)
+            .OrderByDescending(e => e.AllocatedSize)
+            .Take(query.MaxResults)
+            .ToList();
+    }
+
+    private IReadOnlyList<FileEntry> TopDistinctDirectoriesMatching(SearchQuery query) =>
+        TopDistinctDirectories(int.MaxValue)
+            .Where(e => e.AllocatedSize >= query.MinSizeBytes &&
+                        (query.NameContains is null ||
+                         e.Path.Contains(query.NameContains, StringComparison.OrdinalIgnoreCase)))
+            .Take(query.MaxResults)
+            .ToList();
+
+    private bool MatchesQuery(int i, SearchQuery query, long size) =>
+        size >= query.MinSizeBytes &&
+        (query.NameContains is null ||
+         _name[i].Contains(query.NameContains, StringComparison.OrdinalIgnoreCase));
+
     private List<FileEntry> TopBy(int count, Func<int, bool> filter, Func<int, long> key)
     {
         var queue = new PriorityQueue<int, long>();

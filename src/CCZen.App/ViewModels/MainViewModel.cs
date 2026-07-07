@@ -40,7 +40,7 @@ public sealed partial class MainViewModel : ObservableObject
         _engine = engine;
     }
 
-    public ObservableCollection<RecommendationRow> Recommendations { get; } = [];
+    public ObservableCollection<RecommendationGroup> Groups { get; } = [];
 
     [RelayCommand]
     private Task RecommendAsync() => RunGuardedAsync(LoadRecommendationsAsync);
@@ -57,14 +57,19 @@ public sealed partial class MainViewModel : ObservableObject
     {
         IReadOnlyList<Recommendation> recommendations = await _engine.RecommendAsync();
 
-        Recommendations.Clear();
-        foreach (Recommendation r in recommendations.OrderBy(r => r.Tier).ThenByDescending(r => r.SizeBytes))
+        Groups.Clear();
+        var groups = recommendations
+            .GroupBy(r => r.RuleId)
+            .Select(g => RecommendationGroup.From([.. g]))
+            .OrderBy(g => g.Tier)
+            .ThenByDescending(g => g.TotalBytes);
+        foreach (RecommendationGroup group in groups)
         {
-            Recommendations.Add(RecommendationRow.From(r));
+            Groups.Add(group);
         }
 
         long cleanableBytes = recommendations.Where(r => r.Action != "report-only").Sum(r => r.SizeBytes);
-        Summary = $"共 {recommendations.Count} 项推荐，可自动清理约 {SizeFormatter.Format(cleanableBytes)}";
+        Summary = $"共 {recommendations.Count} 项推荐（{Groups.Count} 组），可自动清理约 {SizeFormatter.Format(cleanableBytes)}";
         CanClean = recommendations.Any(r => r.Action != "report-only");
     }
 

@@ -1,5 +1,6 @@
 using System.IO.Pipes;
 using System.Runtime.Versioning;
+using CCZen.Engine.Index;
 using CCZen.Engine.Rules;
 using CCZen.Engine.Safety;
 using CCZen.Engine.Service;
@@ -22,6 +23,15 @@ public sealed class EngineClient : IEngineClient, IAsyncDisposable
     private NamedPipeClientStream? _pipe;
     private JsonRpc? _rpc;
     private IEngineRpc? _engine;
+
+    public async Task<ScanSummary?> GetStatusAsync(CancellationToken cancellationToken = default) =>
+        await (await GetEngineAsync(cancellationToken)).GetStatusAsync(cancellationToken);
+
+    public async Task<ScanSummary> ScanAsync(string root, CancellationToken cancellationToken = default) =>
+        await (await GetEngineAsync(cancellationToken)).ScanAsync(root, useCache: true, cancellationToken);
+
+    public async Task<IReadOnlyList<FileEntry>> SearchAsync(SearchQuery query, CancellationToken cancellationToken = default) =>
+        await (await GetEngineAsync(cancellationToken)).SearchAsync(query, cancellationToken);
 
     public async Task<IReadOnlyList<Recommendation>> RecommendAsync(CancellationToken cancellationToken = default) =>
         await (await GetEngineAsync(cancellationToken)).RecommendAsync(cancellationToken);
