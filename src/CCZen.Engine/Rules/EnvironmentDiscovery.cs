@@ -32,6 +32,8 @@ public static class EnvironmentDiscovery
         Bind("DOCUMENTS", Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments));
         Bind("PROGRAMDATA", Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData));
         Bind("WINDIR", Environment.GetFolderPath(Environment.SpecialFolder.Windows));
+        Bind("PROGRAMFILES", Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles));
+        Bind("PROGRAMFILES_X86", Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86));
         string? profile = symbols.GetValueOrDefault("USERPROFILE");
         if (profile is not null)
         {

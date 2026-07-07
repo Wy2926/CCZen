@@ -117,6 +117,50 @@ public class AdapterEngineTests : IDisposable
     {
         AdapterPack pack = BaselineAdapterPack.Load();
 
-        Assert.True(pack.Adapters.Count >= 5);
+        Assert.True(pack.Adapters.Count >= 10);
+        string[] ids = pack.Adapters.Select(a => a.Id).ToArray();
+        Assert.Contains("wechat", ids);
+        Assert.Contains("telegram", ids);
+        Assert.Contains("gradle", ids);
+        Assert.Contains("maven", ids);
+        Assert.Contains("steam", ids);
+    }
+
+    [Fact]
+    public void WeChat_DefaultDocumentsPath_EnumeratesPerAccountCaches()
+    {
+        Write(@"WeChat Files\wxid_alpha\FileStorage\Cache\blob.bin");
+        Write(@"WeChat Files\wxid_beta\FileStorage\Cache\blob.bin");
+        var env = new EnvironmentModel
+        {
+            Symbols = new Dictionary<string, string> { ["DOCUMENTS"] = _root },
+            InstalledApps = [],
+            RunningProcesses = new HashSet<string>(),
+            Volumes = [],
+        };
+
+        IReadOnlyList<Recommendation> hits = new AdapterEngine(env, BaselineAdapterPack.Load()).Evaluate()
+            .Where(r => r.RuleId == "wechat/file-cache").ToList();
+
+        Assert.Equal(2, hits.Count);
+        Assert.All(hits, h => Assert.Equal("quarantine", h.Action));
+    }
+
+    [Fact]
+    public void WeChat_Running_ChatMediaIsReportOnly()
+    {
+        Write(@"WeChat Files\wxid_alpha\FileStorage\Image\img.dat");
+        var env = new EnvironmentModel
+        {
+            Symbols = new Dictionary<string, string> { ["DOCUMENTS"] = _root },
+            InstalledApps = [],
+            RunningProcesses = new HashSet<string> { "wechat" },
+            Volumes = [],
+        };
+
+        IReadOnlyList<Recommendation> hits = new AdapterEngine(env, BaselineAdapterPack.Load()).Evaluate()
+            .Where(r => r.RuleId == "wechat/chat-media").ToList();
+
+        Assert.Equal("report-only", Assert.Single(hits).Action);
     }
 }
