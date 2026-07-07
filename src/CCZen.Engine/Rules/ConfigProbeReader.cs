@@ -18,7 +18,7 @@ public static class ConfigProbeReader
         {
             return probe.Kind switch
             {
-                "registryValue" => ReadRegistry(probe),
+                "registryValue" when OperatingSystem.IsWindows() => ReadRegistry(probe),
                 "iniValue" => ReadIni(probe, environment),
                 "jsonValue" => ReadJson(probe, environment),
                 _ => null,
