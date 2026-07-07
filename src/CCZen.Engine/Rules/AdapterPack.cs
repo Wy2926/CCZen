@@ -63,10 +63,28 @@ public sealed class AdapterPack
                     "properties": {
                       "uninstallNamePatterns": { "type": "array", "items": { "type": "string" } },
                       "pathPatterns": { "type": "array", "items": { "type": "string" } },
-                      "processNames": { "type": "array", "items": { "type": "string" } }
+                      "processNames": { "type": "array", "items": { "type": "string" } },
+                      "configProbes": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": ["symbol", "kind", "source"],
+                          "properties": {
+                            "symbol": { "type": "string", "minLength": 1 },
+                            "kind": { "enum": ["registryValue", "iniValue", "jsonValue"] },
+                            "source": { "type": "string", "minLength": 1 },
+                            "valueName": { "type": "string" },
+                            "iniSection": { "type": "string" },
+                            "iniKey": { "type": "string" },
+                            "jsonPath": { "type": "string" }
+                          },
+                          "additionalProperties": false
+                        }
+                      }
                     },
                     "additionalProperties": false
                   },
+                  "verifiedVersions": { "type": "string" },
                   "items": {
                     "type": "array",
                     "minItems": 1,
@@ -108,6 +126,10 @@ public sealed class Adapter
     [JsonPropertyName("detect")]
     public required AdapterDetect Detect { get; init; }
 
+    /// <summary>Version range this manifest was verified against, e.g. "1.0-3.9" (ADPT-FR-005).</summary>
+    [JsonPropertyName("verifiedVersions")]
+    public string? VerifiedVersions { get; init; }
+
     [JsonPropertyName("items")]
     public required List<AdapterItem> Items { get; init; }
 }
@@ -126,6 +148,43 @@ public sealed class AdapterDetect
     /// <summary>Lower-case process names (no extension) from the snapshot (RULE-FR-005).</summary>
     [JsonPropertyName("processNames")]
     public List<string>? ProcessNames { get; init; }
+
+    /// <summary>Read-only probes that bind extra symbols from the app's own config (ADPT-FR-002/003).</summary>
+    [JsonPropertyName("configProbes")]
+    public List<ConfigProbe>? ConfigProbes { get; init; }
+}
+
+/// <summary>
+/// A declarative, read-only config probe (ADPT-FR-003): reads a declared
+/// registry value / INI key / JSON property and binds it to a symbol so item
+/// targets can reference user-migrated data directories. Never executes code.
+/// </summary>
+public sealed class ConfigProbe
+{
+    /// <summary>Symbol name to bind on success (referenced by item targets as ${SYMBOL}).</summary>
+    [JsonPropertyName("symbol")]
+    public required string Symbol { get; init; }
+
+    /// <summary>"registryValue" | "iniValue" | "jsonValue".</summary>
+    [JsonPropertyName("kind")]
+    public required string Kind { get; init; }
+
+    /// <summary>Registry key path (HKCU\... or HKLM\...) or symbolized file path.</summary>
+    [JsonPropertyName("source")]
+    public required string Source { get; init; }
+
+    [JsonPropertyName("valueName")]
+    public string? ValueName { get; init; }
+
+    [JsonPropertyName("iniSection")]
+    public string? IniSection { get; init; }
+
+    [JsonPropertyName("iniKey")]
+    public string? IniKey { get; init; }
+
+    /// <summary>Dot-separated property path into a JSON config file.</summary>
+    [JsonPropertyName("jsonPath")]
+    public string? JsonPath { get; init; }
 }
 
 /// <summary>One cleanable item of a detected application (ADPT-FR-004).</summary>
