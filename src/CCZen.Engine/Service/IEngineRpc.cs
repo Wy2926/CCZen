@@ -20,6 +20,12 @@ public interface IEngineRpc
     /// <summary>Returns the largest directory subtrees of the last scanned index.</summary>
     Task<IReadOnlyList<FileEntry>> GetTopDirectoriesAsync(int count, CancellationToken cancellationToken);
 
+    /// <summary>Largest directories with ancestor chains collapsed (SCAN-FR-024).</summary>
+    Task<IReadOnlyList<FileEntry>> GetTopDistinctDirectoriesAsync(int count, CancellationToken cancellationToken);
+
+    /// <summary>Conditional search for large files/directories over the last scanned index (SCAN-FR-025).</summary>
+    Task<IReadOnlyList<FileEntry>> SearchAsync(SearchQuery query, CancellationToken cancellationToken);
+
     /// <summary>Returns the current service/index status without side effects.</summary>
     Task<ScanSummary?> GetStatusAsync(CancellationToken cancellationToken);
 

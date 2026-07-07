@@ -5,66 +5,151 @@
     xmlns:models="using:CCZen.App.Models"
     Title="CCZen">
 
-    <Grid Padding="16" RowSpacing="12">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
-        </Grid.RowDefinitions>
+    <Pivot Margin="8,0">
+        <PivotItem Header="清理推荐">
+            <Grid Padding="8,12" RowSpacing="12">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
 
-        <StackPanel Orientation="Horizontal" Spacing="8">
-            <Button
-                Content="扫描推荐"
-                Command="{x:Bind ViewModel.RecommendCommand}"
-                Style="{StaticResource AccentButtonStyle}" />
-            <Button
-                Content="一键清理 (T0/T1 → 隔离区)"
-                Command="{x:Bind ViewModel.CleanCommand}" />
-            <Button
-                Content="撤销上一批次"
-                Command="{x:Bind ViewModel.UndoCommand}" />
-            <ProgressRing
-                IsActive="{x:Bind ViewModel.IsBusy, Mode=OneWay}"
-                Width="24"
-                Height="24" />
-        </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button
+                        Content="扫描推荐"
+                        Command="{x:Bind ViewModel.RecommendCommand}"
+                        Style="{StaticResource AccentButtonStyle}" />
+                    <Button
+                        Content="一键清理 (T0/T1 → 隔离区)"
+                        Command="{x:Bind ViewModel.CleanCommand}" />
+                    <Button
+                        Content="撤销上一批次"
+                        Command="{x:Bind ViewModel.UndoCommand}" />
+                    <ProgressRing
+                        IsActive="{x:Bind ViewModel.IsBusy, Mode=OneWay}"
+                        Width="24"
+                        Height="24" />
+                </StackPanel>
 
-        <TextBlock
-            Grid.Row="1"
-            Text="{x:Bind ViewModel.Summary, Mode=OneWay}"
-            Style="{StaticResource BodyStrongTextBlockStyle}" />
+                <TextBlock
+                    Grid.Row="1"
+                    Text="{x:Bind ViewModel.Summary, Mode=OneWay}"
+                    Style="{StaticResource BodyStrongTextBlockStyle}" />
 
-        <ListView
-            Grid.Row="2"
-            ItemsSource="{x:Bind ViewModel.Recommendations}"
-            SelectionMode="None">
-            <ListView.ItemTemplate>
-                <DataTemplate x:DataType="models:RecommendationRow">
-                    <Grid ColumnSpacing="12" Padding="0,4">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="56" />
-                            <ColumnDefinition Width="96" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="{x:Bind Tier}" FontWeight="SemiBold" />
-                        <TextBlock Grid.Column="1" Text="{x:Bind Size}" HorizontalAlignment="Right" />
-                        <StackPanel Grid.Column="2">
-                            <TextBlock Text="{x:Bind Path}" TextTrimming="CharacterEllipsis" />
-                            <TextBlock
-                                Text="{x:Bind Explain}"
-                                Opacity="0.7"
-                                FontSize="12"
-                                TextTrimming="CharacterEllipsis" />
-                        </StackPanel>
-                    </Grid>
-                </DataTemplate>
-            </ListView.ItemTemplate>
-        </ListView>
+                <ListView
+                    Grid.Row="2"
+                    ItemsSource="{x:Bind ViewModel.Groups}"
+                    SelectionMode="None">
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="models:RecommendationGroup">
+                            <Expander HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Margin="0,2">
+                                <Expander.Header>
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="40" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{x:Bind Tier}" FontWeight="SemiBold" />
+                                        <TextBlock Grid.Column="1" Text="{x:Bind RuleId}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Column="2" Text="{x:Bind Detail}" Opacity="0.7" />
+                                    </Grid>
+                                </Expander.Header>
+                                <ItemsControl ItemsSource="{x:Bind Items}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="models:RecommendationRow">
+                                            <Grid ColumnSpacing="12" Padding="0,4">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="96" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="{x:Bind Size}" HorizontalAlignment="Right" />
+                                                <StackPanel Grid.Column="1">
+                                                    <TextBlock Text="{x:Bind Path}" TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock
+                                                        Text="{x:Bind Explain}"
+                                                        Opacity="0.7"
+                                                        FontSize="12"
+                                                        TextTrimming="CharacterEllipsis" />
+                                                </StackPanel>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </Expander>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
 
-        <TextBlock
-            Grid.Row="3"
-            Text="{x:Bind ViewModel.Status, Mode=OneWay}"
-            Opacity="0.7" />
-    </Grid>
+                <TextBlock
+                    Grid.Row="3"
+                    Text="{x:Bind ViewModel.Status, Mode=OneWay}"
+                    Opacity="0.7" />
+            </Grid>
+        </PivotItem>
+
+        <PivotItem Header="大文件搜索">
+            <Grid Padding="8,12" RowSpacing="12">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <ComboBox SelectedIndex="{x:Bind SearchViewModel.KindIndex, Mode=TwoWay}" MinWidth="110">
+                        <ComboBoxItem Content="仅文件" />
+                        <ComboBoxItem Content="仅目录" />
+                        <ComboBoxItem Content="文件 + 目录" />
+                    </ComboBox>
+                    <TextBox
+                        Text="{x:Bind SearchViewModel.MinSizeMb, Mode=TwoWay}"
+                        Header="最小大小 (MB)"
+                        Width="120" />
+                    <TextBox
+                        Text="{x:Bind SearchViewModel.NameFilter, Mode=TwoWay}"
+                        Header="名称包含（如 .iso）"
+                        Width="180" />
+                    <Button
+                        Content="搜索"
+                        Command="{x:Bind SearchViewModel.SearchCommand}"
+                        Style="{StaticResource AccentButtonStyle}"
+                        VerticalAlignment="Bottom" />
+                    <ProgressRing
+                        IsActive="{x:Bind SearchViewModel.IsBusy, Mode=OneWay}"
+                        Width="24"
+                        Height="24"
+                        VerticalAlignment="Bottom" />
+                </StackPanel>
+
+                <TextBlock
+                    Grid.Row="1"
+                    Text="{x:Bind SearchViewModel.Status, Mode=OneWay}"
+                    Opacity="0.7" />
+
+                <ListView
+                    Grid.Row="2"
+                    ItemsSource="{x:Bind SearchViewModel.Results}"
+                    SelectionMode="None">
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="models:SearchResultRow">
+                            <Grid ColumnSpacing="12" Padding="0,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="40" />
+                                    <ColumnDefinition Width="96" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="{x:Bind Kind}" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="1" Text="{x:Bind Size}" HorizontalAlignment="Right" />
+                                <TextBlock Grid.Column="2" Text="{x:Bind Path}" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Grid.Column="3" Text="{x:Bind Detail}" Opacity="0.7" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </Grid>
+        </PivotItem>
+    </Pivot>
 </Window>

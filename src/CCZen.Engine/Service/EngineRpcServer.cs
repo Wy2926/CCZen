@@ -74,6 +74,12 @@ public sealed class EngineRpcServer : IEngineRpc
     public Task<IReadOnlyList<FileEntry>> GetTopDirectoriesAsync(int count, CancellationToken cancellationToken) =>
         Task.FromResult(RequireIndex().TopDirectories(count));
 
+    public Task<IReadOnlyList<FileEntry>> GetTopDistinctDirectoriesAsync(int count, CancellationToken cancellationToken) =>
+        Task.FromResult(RequireIndex().TopDistinctDirectories(count));
+
+    public Task<IReadOnlyList<FileEntry>> SearchAsync(SearchQuery query, CancellationToken cancellationToken) =>
+        Task.Run(() => RequireIndex().Search(query), cancellationToken);
+
     public Task<ScanSummary?> GetStatusAsync(CancellationToken cancellationToken) => Task.FromResult(_summary);
 
     public Task<IReadOnlyList<Recommendation>> RecommendAsync(CancellationToken cancellationToken) =>
