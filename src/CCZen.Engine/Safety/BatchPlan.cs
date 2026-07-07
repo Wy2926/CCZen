@@ -58,6 +58,7 @@ public enum ItemOutcome
     SkippedFingerprintMismatch,
     SkippedMissing,
     SkippedReparsePoint,
+    SkippedLocked,
     Failed,
 }
 
