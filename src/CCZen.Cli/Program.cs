@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO.Pipes;
 using CCZen.Engine.Index;
 using CCZen.Engine.Rules;
+using CCZen.Engine.Safety;
 using CCZen.Engine.Scanning;
 using CCZen.Engine.Service;
 using StreamJsonRpc;
@@ -10,7 +11,10 @@ if (args.Length < 1 || args[0] is "-h" or "--help")
 {
     Console.WriteLine("CCZen M0 POC — NTFS fast scan (spec: docs/specs/01-scan-engine.md)");
     Console.WriteLine("Usage: cczen <root> [--top N] [--mode auto|usn|fallback|client] [--cache <file>]");
-    Console.WriteLine("       cczen recommend        # 规则引擎清理推荐 (specs/02)");
+    Console.WriteLine("       cczen recommend                 # 规则引擎清理推荐 (specs/02)");
+    Console.WriteLine("       cczen clean [--yes]             # T0/T1 推荐项 → 隔离区 (specs/04)");
+    Console.WriteLine("       cczen restore <卷> <batchId>    # 按批次还原隔离区");
+    Console.WriteLine("       cczen batches [卷]              # 列出隔离区批次");
     Console.WriteLine("Example: cczen C: --top 20");
     Console.WriteLine("        --mode client queries a running CCZen.Service over \\\\.\\pipe\\cczen-engine");
     return 1;
@@ -19,6 +23,21 @@ if (args.Length < 1 || args[0] is "-h" or "--help")
 if (args[0] == "recommend")
 {
     return RunRecommend();
+}
+
+if (args[0] == "clean")
+{
+    return RunClean(autoConfirm: args.Contains("--yes"));
+}
+
+if (args[0] == "restore" && args.Length >= 3)
+{
+    return RunRestore(args[1], args[2]);
+}
+
+if (args[0] == "batches")
+{
+    return RunBatches(args.Length >= 2 ? args[1] : "C:\\");
 }
 
 string root = args[0].Length == 2 && args[0][1] == ':' ? args[0] + "\\" : args[0];
@@ -103,6 +122,81 @@ static int RunRecommend()
     }
 
     Console.WriteLine($"\n合计可清理: {Format(recommendations.Sum(r => r.SizeBytes))} ({recommendations.Count} 项)");
+    return 0;
+}
+
+static int RunClean(bool autoConfirm)
+{
+    EnvironmentModel environment = EnvironmentDiscovery.Discover();
+    IReadOnlyList<Recommendation> recommendations =
+        new RuleEngine(environment, BaselineRulePack.Load()).Evaluate();
+    var protection = new ProtectedPaths();
+    BatchPlan plan = CleanupPlanner.Plan(recommendations, protection);
+
+    if (plan.Items.Count == 0)
+    {
+        Console.WriteLine("没有可自动清理的 T0/T1 推荐项。");
+        return 0;
+    }
+
+    long total = plan.Items.Sum(i => i.SizeBytes);
+    Console.WriteLine($"批次 {plan.BatchId}: {plan.Items.Count} 项 (文件尺寸合计 {Format(total)}) 将移入隔离区 <卷>\\CCZen.Quarantine\\{plan.BatchId}");
+    foreach (PlanItem item in plan.Items.OrderByDescending(i => i.SizeBytes).Take(20))
+    {
+        Console.WriteLine($"  {Format(item.SizeBytes),10}  {item.Path}");
+    }
+
+    if (!autoConfirm)
+    {
+        Console.Write("确认执行? [y/N] ");
+        if (Console.ReadLine()?.Trim().ToLowerInvariant() != "y")
+        {
+            Console.WriteLine("已取消。");
+            return 0;
+        }
+    }
+
+    var store = new QuarantineStore(protection);
+    IReadOnlyList<ItemResult> results = store.Execute(plan);
+    foreach (var group in results.GroupBy(r => r.Outcome))
+    {
+        Console.WriteLine($"  {group.Key}: {group.Count()} 项");
+    }
+
+    Console.WriteLine($"还原命令: cczen restore <卷> {plan.BatchId}");
+    return 0;
+}
+
+static int RunRestore(string volume, string batchId)
+{
+    string volumeRoot = volume.Length == 2 && volume[1] == ':' ? volume + "\\" : volume;
+    var store = new QuarantineStore(new ProtectedPaths());
+    IReadOnlyList<ItemResult> results = store.Restore(volumeRoot, batchId);
+    foreach (ItemResult result in results)
+    {
+        Console.WriteLine($"  {result.Outcome}  {result.Path}");
+    }
+
+    Console.WriteLine($"已处理 {results.Count} 项。");
+    return 0;
+}
+
+static int RunBatches(string volume)
+{
+    string volumeRoot = volume.Length == 2 && volume[1] == ':' ? volume + "\\" : volume;
+    string quarantineRoot = Path.Combine(volumeRoot, QuarantineStore.DirectoryName);
+    if (!Directory.Exists(quarantineRoot))
+    {
+        Console.WriteLine("隔离区为空。");
+        return 0;
+    }
+
+    foreach (string batch in Directory.EnumerateDirectories(quarantineRoot))
+    {
+        long size = Directory.EnumerateFiles(batch, "*", SearchOption.AllDirectories).Sum(f => new FileInfo(f).Length);
+        Console.WriteLine($"  {Path.GetFileName(batch)}  {Format(size),10}  {Directory.GetLastWriteTime(batch):yyyy-MM-dd HH:mm}");
+    }
+
     return 0;
 }
 
