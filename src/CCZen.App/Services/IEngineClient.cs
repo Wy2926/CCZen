@@ -33,9 +33,17 @@ public interface IEngineClient
     /// <summary>Builds a reversible quarantine plan for user-picked paths (large-file search).</summary>
     Task<BatchPlan> PlanQuarantineAsync(IReadOnlyList<string> paths, CancellationToken cancellationToken = default);
 
-    /// <summary>Executes a planned batch exactly once (SAFE-FR-010); items move to quarantine.</summary>
-    Task<IReadOnlyList<ItemResult>> ExecuteBatchAsync(string batchId, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Executes a planned batch exactly once (SAFE-FR-010). Items move to
+    /// quarantine, or are deleted directly when <paramref name="permanentDelete"/>
+    /// is set (explicit user opt-in). Per-item progress streams via
+    /// <paramref name="progress"/>.
+    /// </summary>
+    Task<IReadOnlyList<ItemResult>> ExecuteBatchAsync(string batchId, bool permanentDelete = false, IProgress<ExecuteProgress>? progress = null, CancellationToken cancellationToken = default);
 
     /// <summary>Restores a quarantined batch back to original paths.</summary>
     Task<IReadOnlyList<ItemResult>> RestoreBatchAsync(string volumeRoot, string batchId, CancellationToken cancellationToken = default);
+
+    /// <summary>Permanently deletes a quarantined batch (explicit user action).</summary>
+    Task<bool> PurgeBatchAsync(string volumeRoot, string batchId, CancellationToken cancellationToken = default);
 }

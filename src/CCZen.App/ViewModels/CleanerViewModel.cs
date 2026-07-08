@@ -4,6 +4,7 @@ using CCZen.App.Models;
 using CCZen.App.Services;
 using CCZen.Engine.Rules;
 using CCZen.Engine.Safety;
+using CCZen.Engine.Service;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -53,6 +54,12 @@ public sealed partial class CleanerViewModel : OperationViewModel
 
     public ObservableCollection<RuleGroup> Groups { get; } = [];
 
+    /// <summary>Report-only / T3 groups: shown separately, never selectable.</summary>
+    public ObservableCollection<RuleGroup> ReportOnlyGroups { get; } = [];
+
+    /// <summary>Items the last execution could not process, with reasons.</summary>
+    public ObservableCollection<SkippedItemRow> SkippedItems { get; } = [];
+
     public ObservableCollection<QuarantineBatchRow> BatchHistory { get; } = [];
 
     /// <summary>Set by the shell to show a modal confirm dialog; defaults to auto-confirm.</summary>
@@ -61,6 +68,9 @@ public sealed partial class CleanerViewModel : OperationViewModel
 
     /// <summary>When true (settings), a confirm dialog is shown before every clean.</summary>
     public Func<bool> ConfirmBeforeClean { get; set; } = () => true;
+
+    /// <summary>When true (settings), clean deletes directly instead of quarantining.</summary>
+    public Func<bool> DirectDeleteMode { get; set; } = () => false;
 
     [RelayCommand]
     private Task RecommendAsync() => RunGuardedAsync(LoadRecommendationsAsync, ScanPhases);
@@ -83,6 +93,7 @@ public sealed partial class CleanerViewModel : OperationViewModel
         IReadOnlyList<Recommendation> recommendations = await _engine.RecommendAsync();
 
         Groups.Clear();
+        ReportOnlyGroups.Clear();
         var groups = recommendations
             .GroupBy(r => r.RuleId)
             .Select(g => new RuleGroup(g.Key, [.. g]))
@@ -90,12 +101,20 @@ public sealed partial class CleanerViewModel : OperationViewModel
             .ThenByDescending(g => g.TotalBytes);
         foreach (RuleGroup group in groups)
         {
-            group.SelectionChanged += (_, _) => RecomputeSelection();
-            Groups.Add(group);
+            if (group.HasSelectableItems)
+            {
+                group.SelectionChanged += (_, _) => RecomputeSelection();
+                Groups.Add(group);
+            }
+            else
+            {
+                ReportOnlyGroups.Add(group);
+            }
         }
 
         long cleanableBytes = recommendations.Where(r => r.Action != "report-only").Sum(r => r.SizeBytes);
-        Summary = $"共 {recommendations.Count} 项推荐（{Groups.Count} 组），可清理约 {SizeFormatter.Format(cleanableBytes)}";
+        string reportOnlyHint = ReportOnlyGroups.Count > 0 ? $"，另有 {ReportOnlyGroups.Count} 组仅提示项" : string.Empty;
+        Summary = $"共 {recommendations.Count} 项推荐（{Groups.Count} 组可清理{reportOnlyHint}），可清理约 {SizeFormatter.Format(cleanableBytes)}";
         HasScanned = true;
         Status = string.Empty;
         RecomputeSelection();
@@ -122,14 +141,18 @@ public sealed partial class CleanerViewModel : OperationViewModel
             return;
         }
 
+        bool directDelete = DirectDeleteMode();
         var t2Paths = selected.Where(i => i.Tier == Tier.T2).Select(i => i.Path).ToList();
         long totalBytes = selected.Sum(i => i.SizeBytes);
-        if (ConfirmBeforeClean() || t2Paths.Count > 0)
+        if (ConfirmBeforeClean() || t2Paths.Count > 0 || directDelete)
         {
             string t2Hint = t2Paths.Count > 0 ? $"（含 {t2Paths.Count} 项 T2 需确认项）" : string.Empty;
+            string action = directDelete
+                ? $"直接永久删除{t2Hint}。此操作不可撤销！"
+                : $"移入隔离区{t2Hint}。操作可在隔离区整批撤销。";
             bool confirmed = await ConfirmInteraction(
-                "确认清理所选项目？",
-                $"将把 {selected.Count} 项（约 {SizeFormatter.Format(totalBytes)}）移入隔离区{t2Hint}。操作可在隔离区整批撤销。");
+                directDelete ? "确认永久删除所选项目？" : "确认清理所选项目？",
+                $"将把 {selected.Count} 项（约 {SizeFormatter.Format(totalBytes)}）{action}");
             if (!confirmed)
             {
                 Status = "已取消清理。";
@@ -139,24 +162,54 @@ public sealed partial class CleanerViewModel : OperationViewModel
 
         var selectedPaths = selected.Select(i => i.Path).ToList();
         BatchPlan plan = await _engine.PlanCleanAsync(t2Paths, selectedPaths);
+        SkippedItems.Clear();
         if (plan.Items.Count == 0)
         {
             Status = "所选项目均不可清理（受保护或已消失）。";
             return;
         }
 
-        IReadOnlyList<ItemResult> results = await _engine.ExecuteBatchAsync(plan.BatchId);
-        int quarantined = results.Count(r => r.Outcome == ItemOutcome.Quarantined);
+        IReadOnlyList<ItemResult> results = await _engine.ExecuteBatchAsync(
+            plan.BatchId,
+            directDelete,
+            CreateExecuteProgress(directDelete ? "正在删除" : "正在移入隔离区"));
+        int succeeded = results.Count(r => r.Outcome is ItemOutcome.Quarantined or ItemOutcome.Deleted);
+        ReportSkipped(results);
+
+        if (directDelete)
+        {
+            Status = $"批次 {plan.BatchId}：{succeeded}/{results.Count} 项已永久删除{SkippedSuffix(results.Count - succeeded)}";
+            return;
+        }
 
         var batch = new QuarantineBatchRow(
             plan.BatchId,
             Path.GetPathRoot(plan.Items[0].Path) ?? "C:\\",
-            $"{quarantined}/{results.Count} 项已移入隔离区",
+            $"{succeeded}/{results.Count} 项已移入隔离区",
             DateTime.Now.ToString("yyyy-MM-dd HH:mm"));
         BatchHistory.Insert(0, batch);
         LastBatch = batch;
-        Status = $"批次 {plan.BatchId}：{quarantined}/{results.Count} 项已移入隔离区，可撤销。";
+        Status = $"批次 {plan.BatchId}：{succeeded}/{results.Count} 项已移入隔离区，可撤销{SkippedSuffix(results.Count - succeeded)}";
     }
+
+    /// <summary>Maps engine execute progress onto the page progress bar.</summary>
+    private Progress<ExecuteProgress> CreateExecuteProgress(string verb) =>
+        new(p =>
+        {
+            ProgressValue = p.Total == 0 ? 100 : 100.0 * p.Done / p.Total;
+            ProgressPhase = $"{verb} {p.Done}/{p.Total}：{p.CurrentPath}";
+        });
+
+    private void ReportSkipped(IReadOnlyList<ItemResult> results)
+    {
+        foreach (ItemResult result in results.Where(r => r.Outcome is not (ItemOutcome.Quarantined or ItemOutcome.Deleted)))
+        {
+            SkippedItems.Add(new SkippedItemRow(result));
+        }
+    }
+
+    private static string SkippedSuffix(int skipped) =>
+        skipped > 0 ? $"；{skipped} 项未处理，原因见下方列表。" : "。";
 
     /// <summary>Records a batch executed elsewhere (e.g. large-file quarantine).</summary>
     public void RecordBatch(QuarantineBatchRow batch)
@@ -175,4 +228,26 @@ public sealed partial class CleanerViewModel : OperationViewModel
             LastBatch = null;
         }
     }
+
+    [RelayCommand]
+    private Task PurgeBatchAsync(QuarantineBatchRow batch) => RunGuardedAsync(async () =>
+    {
+        bool confirmed = await ConfirmInteraction(
+            "确认彻底删除该批次？",
+            $"批次 {batch.BatchId}（{batch.Summary}）将被永久删除，无法再还原！");
+        if (!confirmed)
+        {
+            Status = "已取消彻底删除。";
+            return;
+        }
+
+        await _engine.PurgeBatchAsync(batch.VolumeRoot, batch.BatchId);
+        BatchHistory.Remove(batch);
+        if (LastBatch == batch)
+        {
+            LastBatch = null;
+        }
+
+        Status = $"批次 {batch.BatchId}：已彻底删除。";
+    });
 }

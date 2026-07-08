@@ -36,6 +36,14 @@
                     <CheckBox IsChecked="{Binding ConfirmBeforeClean, Mode=TwoWay}" />
                 </controls:SettingCard.ActionContent>
             </controls:SettingCard>
+            <controls:SettingCard Icon="🗑" Header="清理方式" Description="移入隔离区可整批撤销（推荐）；直接删除不可恢复，执行前会再次确认">
+                <controls:SettingCard.ActionContent>
+                    <ComboBox SelectedIndex="{Binding CleanModeIndex, Mode=TwoWay}" MinWidth="180">
+                        <ComboBoxItem Content="移入隔离区（可撤销）" />
+                        <ComboBoxItem Content="直接永久删除" />
+                    </ComboBox>
+                </controls:SettingCard.ActionContent>
+            </controls:SettingCard>
             <controls:SettingCard Icon="🕒" Header="隔离区保留时长" Description="超过保留期的批次可被自动清空（specs/04，策略暂未生效）">
                 <controls:SettingCard.ActionContent>
                     <ComboBox SelectedIndex="{Binding RetentionIndex, Mode=TwoWay}" MinWidth="140">

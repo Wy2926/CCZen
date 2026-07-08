@@ -54,6 +54,7 @@ public sealed record PlanItem(string Path, bool IsDirectory, long SizeBytes, Dat
 public enum ItemOutcome
 {
     Quarantined,
+    Deleted,
     SkippedProtected,
     SkippedFingerprintMismatch,
     SkippedMissing,
