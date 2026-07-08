@@ -1,87 +1,71 @@
-<Page
-    x:Class="CCZen.App.Views.QuarantinePage"
-    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:models="using:CCZen.App.Models">
+<UserControl x:Class="CCZen.App.Views.QuarantinePage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:CCZen.App.Controls">
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+    </UserControl.Resources>
 
-    <Grid Padding="{StaticResource PagePadding}" MaxWidth="1100">
+    <Grid Margin="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <StackPanel>
-            <TextBlock Text="隔离区与撤销" Style="{StaticResource PageTitleStyle}" />
-            <TextBlock
-                Text="CCZen 绝不静默永久删除：每次清理生成一个批次并整体移入隔离区，可在此按批次一键还原。"
-                Style="{StaticResource PageDescriptionStyle}" />
+        <StackPanel Grid.Row="0" Margin="0,0,0,12">
+            <TextBlock Text="隔离区" Style="{StaticResource PageTitle}" />
+            <TextBlock Text="所有清理默认移入隔离区（红线 1：永不静默永久删除）。误删可整批一键还原到原路径。"
+                       Style="{StaticResource SecondaryText}" Margin="0,4,0,0" TextWrapping="Wrap" />
         </StackPanel>
 
-        <InfoBar
-            Grid.Row="1"
-            IsOpen="True"
-            IsClosable="False"
-            Severity="Informational"
-            Title="安全模型"
-            Message="隔离区按卷存放（specs/04），批次执行恰好一次，还原回原始路径。到期自动清空等策略将在后续版本提供。" />
+        <Grid Grid.Row="1">
+            <controls:EmptyState Icon="🗃" Message="隔离区为空 — 本次会话执行的清理批次会显示在这里">
+                <controls:EmptyState.Style>
+                    <Style TargetType="controls:EmptyState">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding BatchHistory.Count}" Value="0">
+                                <Setter Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </controls:EmptyState.Style>
+            </controls:EmptyState>
 
-        <InfoBar
-            Grid.Row="2"
-            Margin="0,8,0,0"
-            IsOpen="{x:Bind ViewModel.HasStatus, Mode=OneWay}"
-            Message="{x:Bind ViewModel.Status, Mode=OneWay}"
-            Severity="Success"
-            IsClosable="False" />
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <ItemsControl ItemsSource="{Binding BatchHistory}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Style="{StaticResource CardBorder}" Margin="0,0,0,8">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="🗃" FontSize="22" VerticalAlignment="Center" Margin="0,0,14,0" />
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="{Binding BatchId}" Style="{StaticResource DataText}"
+                                                       Foreground="{DynamicResource AccentBrush}" Margin="0,0,10,0" />
+                                            <TextBlock Text="{Binding TimeLabel}" Style="{StaticResource SecondaryText}" />
+                                        </StackPanel>
+                                        <TextBlock Text="{Binding Summary}" Style="{StaticResource PrimaryText}"
+                                                   FontSize="12" Margin="0,3,0,0" />
+                                    </StackPanel>
+                                    <Button Grid.Column="2" Content="↩ 整批还原" VerticalAlignment="Center"
+                                            Command="{Binding DataContext.RestoreBatchCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                            CommandParameter="{Binding}" />
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Grid>
 
-        <StackPanel
-            Grid.Row="3"
-            Spacing="8"
-            VerticalAlignment="Center"
-            HorizontalAlignment="Center"
-            Visibility="{x:Bind IsEmptyVisible, Mode=OneWay}">
-            <FontIcon Glyph="&#xE7A7;" FontSize="36" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" />
-            <TextBlock
-                Text="本次会话还没有清理批次 — 在「智能清理」执行一键清理后，批次会出现在这里"
-                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-        </StackPanel>
-
-        <ListView
-            Grid.Row="3"
-            Margin="0,16,0,0"
-            ItemsSource="{x:Bind ViewModel.BatchHistory}"
-            SelectionMode="None">
-            <ListView.ItemTemplate>
-                <DataTemplate x:DataType="models:QuarantineBatchRow">
-                    <Border Style="{StaticResource CardBorderStyle}" Margin="0,4">
-                        <Grid ColumnSpacing="16">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <FontIcon Glyph="&#xF12B;" FontSize="20" VerticalAlignment="Center" />
-                            <StackPanel Grid.Column="1" Spacing="2">
-                                <TextBlock Text="{x:Bind BatchId}" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                                <TextBlock
-                                    Text="{x:Bind Summary}"
-                                    Style="{StaticResource CaptionTextBlockStyle}"
-                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                <TextBlock
-                                    Text="{x:Bind TimeLabel}"
-                                    Style="{StaticResource CaptionTextBlockStyle}"
-                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                            </StackPanel>
-                            <Button
-                                Grid.Column="2"
-                                Content="还原此批次"
-                                Click="OnRestoreClick"
-                                VerticalAlignment="Center" />
-                        </Grid>
-                    </Border>
-                </DataTemplate>
-            </ListView.ItemTemplate>
-        </ListView>
+        <TextBlock Grid.Row="2" Text="{Binding Status}" Style="{StaticResource SecondaryText}" Margin="0,10,0,0"
+                   Visibility="{Binding HasStatus, Converter={StaticResource BoolToVis}}" />
     </Grid>
-</Page>
+</UserControl>

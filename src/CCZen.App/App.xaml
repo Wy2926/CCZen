@@ -1,37 +1,14 @@
-<Application
-    x:Class="CCZen.App.App"
-    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+<Application x:Class="CCZen.App.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             StartupUri="MainWindow.xaml">
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
-                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+                <ResourceDictionary Source="Resources/Themes/DarkTheme.xaml" />
+                <ResourceDictionary Source="Resources/Styles/BaseStyles.xaml" />
+                <ResourceDictionary Source="Resources/Styles/ControlStyles.xaml" />
             </ResourceDictionary.MergedDictionaries>
-
-            <!-- Shared page chrome (PowerToys-style page header + card surfaces) -->
-            <Thickness x:Key="PagePadding">40,24,40,24</Thickness>
-
-            <Style x:Key="PageTitleStyle" TargetType="TextBlock" BasedOn="{StaticResource TitleTextBlockStyle}">
-                <Setter Property="Margin" Value="0,0,0,4" />
-            </Style>
-
-            <Style x:Key="PageDescriptionStyle" TargetType="TextBlock" BasedOn="{StaticResource BodyTextBlockStyle}">
-                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
-                <Setter Property="TextWrapping" Value="Wrap" />
-                <Setter Property="Margin" Value="0,0,0,20" />
-            </Style>
-
-            <Style x:Key="SectionHeaderStyle" TargetType="TextBlock" BasedOn="{StaticResource BodyStrongTextBlockStyle}">
-                <Setter Property="Margin" Value="1,16,0,8" />
-            </Style>
-
-            <Style x:Key="CardBorderStyle" TargetType="Border">
-                <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
-                <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
-                <Setter Property="BorderThickness" Value="1" />
-                <Setter Property="CornerRadius" Value="{StaticResource OverlayCornerRadius}" />
-                <Setter Property="Padding" Value="16" />
-            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

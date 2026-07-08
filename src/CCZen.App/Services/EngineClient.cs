@@ -1,3 +1,4 @@
+using System.IO;
 using System.IO.Pipes;
 using System.Runtime.Versioning;
 using CCZen.Engine.Index;
@@ -36,8 +37,11 @@ public sealed class EngineClient : IEngineClient, IAsyncDisposable
     public async Task<IReadOnlyList<Recommendation>> RecommendAsync(CancellationToken cancellationToken = default) =>
         await (await GetEngineAsync(cancellationToken)).RecommendAsync(cancellationToken);
 
-    public async Task<BatchPlan> PlanCleanAsync(IReadOnlyList<string>? confirmedT2Paths = null, CancellationToken cancellationToken = default) =>
-        await (await GetEngineAsync(cancellationToken)).PlanCleanAsync(confirmedT2Paths, cancellationToken);
+    public async Task<BatchPlan> PlanCleanAsync(IReadOnlyList<string>? confirmedT2Paths = null, IReadOnlyList<string>? selectedPaths = null, CancellationToken cancellationToken = default) =>
+        await (await GetEngineAsync(cancellationToken)).PlanCleanAsync(confirmedT2Paths, selectedPaths, cancellationToken);
+
+    public async Task<BatchPlan> PlanQuarantineAsync(IReadOnlyList<string> paths, CancellationToken cancellationToken = default) =>
+        await (await GetEngineAsync(cancellationToken)).PlanQuarantineAsync(paths, cancellationToken);
 
     public async Task<IReadOnlyList<ItemResult>> ExecuteBatchAsync(string batchId, CancellationToken cancellationToken = default) =>
         await (await GetEngineAsync(cancellationToken)).ExecuteBatchAsync(batchId, cancellationToken);

@@ -1,23 +1,21 @@
-using CCZen.App.ViewModels;
-using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
+using System.Windows;
+using System.Windows.Controls;
 
 namespace CCZen.App.Views;
 
-public sealed partial class DashboardPage : Page
+public partial class DashboardPage : UserControl
 {
     public DashboardPage()
     {
         InitializeComponent();
+        DataContext = App.Dashboard;
     }
-
-    public DashboardViewModel ViewModel => App.Dashboard;
 
     private void OnQuickActionClick(object sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.Tag is string tag)
+        if (sender is Button { Tag: string tag } && Window.GetWindow(this) is MainWindow main)
         {
-            App.Window?.NavigateTo(tag);
+            main.NavigateTo(tag);
         }
     }
 }

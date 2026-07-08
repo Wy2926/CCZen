@@ -1,8 +1,8 @@
-using Microsoft.UI.Xaml.Controls;
+using System.Windows.Controls;
 
 namespace CCZen.App.Views;
 
-public sealed partial class DuplicatesPage : Page
+public partial class DuplicatesPage : UserControl
 {
     public DuplicatesPage()
     {

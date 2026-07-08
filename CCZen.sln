@@ -1,4 +1,4 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
@@ -42,10 +42,10 @@ Global
 		{1EF6F817-D1C5-498E-B097-B4B73DE64B6A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{1EF6F817-D1C5-498E-B097-B4B73DE64B6A}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{1EF6F817-D1C5-498E-B097-B4B73DE64B6A}.Release|Any CPU.Build.0 = Release|Any CPU
-		{E374A68B-78A5-45CE-B8FB-34F42C876320}.Debug|Any CPU.ActiveCfg = Debug|x64
-		{E374A68B-78A5-45CE-B8FB-34F42C876320}.Debug|Any CPU.Build.0 = Debug|x64
-		{E374A68B-78A5-45CE-B8FB-34F42C876320}.Release|Any CPU.ActiveCfg = Release|x64
-		{E374A68B-78A5-45CE-B8FB-34F42C876320}.Release|Any CPU.Build.0 = Release|x64
+		{E374A68B-78A5-45CE-B8FB-34F42C876320}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E374A68B-78A5-45CE-B8FB-34F42C876320}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E374A68B-78A5-45CE-B8FB-34F42C876320}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E374A68B-78A5-45CE-B8FB-34F42C876320}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{E28FA3CB-9C6B-4CCA-8A57-DECA46D66405} = {C06FF559-E706-4273-9280-829CA592CAEB}

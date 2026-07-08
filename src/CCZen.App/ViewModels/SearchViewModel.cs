@@ -1,7 +1,9 @@
 using System.Collections.ObjectModel;
+using System.IO;
 using CCZen.App.Models;
 using CCZen.App.Services;
 using CCZen.Engine.Index;
+using CCZen.Engine.Safety;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -9,7 +11,8 @@ namespace CCZen.App.ViewModels;
 
 /// <summary>
 /// View model for conditional large file/directory search (SCAN-FR-025):
-/// scans on first use, then queries the in-memory index instantly.
+/// scans on first use, then queries the in-memory index instantly. Checked
+/// results can be moved to quarantine (reversible per batch).
 /// </summary>
 public sealed partial class SearchViewModel : OperationViewModel
 {
@@ -38,12 +41,26 @@ public sealed partial class SearchViewModel : OperationViewModel
     [ObservableProperty]
     private string _indexStatus = "索引未构建 — 首次搜索时自动扫描系统卷";
 
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(QuarantineSelectedCommand))]
+    private int _selectedCount;
+
+    [ObservableProperty]
+    private string _selectionSummary = string.Empty;
+
     public SearchViewModel(IEngineClient engine)
     {
         _engine = engine;
     }
 
-    public ObservableCollection<SearchResultRow> Results { get; } = [];
+    public ObservableCollection<SelectableSearchRow> Results { get; } = [];
+
+    /// <summary>Set by the shell to show a modal confirm dialog; defaults to auto-confirm.</summary>
+    public Func<string, string, Task<bool>> ConfirmInteraction { get; set; } =
+        (_, _) => Task.FromResult(true);
+
+    /// <summary>Set by the shell so executed batches land in the quarantine center.</summary>
+    public Action<QuarantineBatchRow>? BatchRecorded { get; set; }
 
     [RelayCommand]
     private Task SearchAsync() => RunGuardedAsync(
@@ -53,6 +70,11 @@ public sealed partial class SearchViewModel : OperationViewModel
             await RunSearchAsync();
         },
         ScanPhases);
+
+    [RelayCommand(CanExecute = nameof(CanQuarantine))]
+    private Task QuarantineSelectedAsync() => RunGuardedAsync(ExecuteQuarantineAsync);
+
+    private bool CanQuarantine() => SelectedCount > 0;
 
     private async Task EnsureIndexAsync()
     {
@@ -79,10 +101,67 @@ public sealed partial class SearchViewModel : OperationViewModel
         Results.Clear();
         foreach (FileEntry entry in entries)
         {
-            Results.Add(SearchResultRow.From(entry));
+            var row = new SelectableSearchRow(entry);
+            row.SelectionChanged += (_, _) => RecomputeSelection();
+            Results.Add(row);
         }
 
+        RecomputeSelection();
         Status = $"命中 {entries.Count} 项（按占用空间降序，最多 {MaxResults} 项）。";
+    }
+
+    private void RecomputeSelection()
+    {
+        var selected = Results.Where(r => r.IsSelected).ToList();
+        SelectedCount = selected.Count;
+        SelectionSummary = selected.Count == 0
+            ? "未选择任何项"
+            : $"已选 {selected.Count} 项 · 约 {SizeFormatter.Format(selected.Sum(r => r.SizeBytes))}";
+    }
+
+    private async Task ExecuteQuarantineAsync()
+    {
+        var selected = Results.Where(r => r.IsSelected).ToList();
+        if (selected.Count == 0)
+        {
+            Status = "请先勾选需要隔离的项目。";
+            return;
+        }
+
+        long totalBytes = selected.Sum(r => r.SizeBytes);
+        bool confirmed = await ConfirmInteraction(
+            "确认移入隔离区？",
+            $"将把 {selected.Count} 项（约 {SizeFormatter.Format(totalBytes)}）移入隔离区。文件不会被删除，可在隔离区整批还原。");
+        if (!confirmed)
+        {
+            Status = "已取消。";
+            return;
+        }
+
+        BatchPlan plan = await _engine.PlanQuarantineAsync(selected.Select(r => r.Path).ToList());
+        if (plan.Items.Count == 0)
+        {
+            Status = "所选项目均不可隔离（受保护或已消失）。";
+            return;
+        }
+
+        IReadOnlyList<ItemResult> results = await _engine.ExecuteBatchAsync(plan.BatchId);
+        int quarantined = results.Count(r => r.Outcome == ItemOutcome.Quarantined);
+
+        var batch = new QuarantineBatchRow(
+            plan.BatchId,
+            Path.GetPathRoot(plan.Items[0].Path) ?? "C:\\",
+            $"{quarantined}/{results.Count} 项已移入隔离区（大文件搜索）",
+            DateTime.Now.ToString("yyyy-MM-dd HH:mm"));
+        BatchRecorded?.Invoke(batch);
+
+        foreach (SelectableSearchRow row in selected)
+        {
+            Results.Remove(row);
+        }
+
+        RecomputeSelection();
+        Status = $"批次 {plan.BatchId}：{quarantined}/{results.Count} 项已移入隔离区，可在隔离区还原。";
     }
 
     private long ParseMinSizeBytes() =>

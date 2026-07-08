@@ -97,17 +97,30 @@ public sealed class EngineRpcServer : IEngineRpc
             },
             cancellationToken);
 
-    public async Task<BatchPlan> PlanCleanAsync(IReadOnlyList<string>? confirmedT2Paths, CancellationToken cancellationToken)
+    public async Task<BatchPlan> PlanCleanAsync(IReadOnlyList<string>? confirmedT2Paths, IReadOnlyList<string>? selectedPaths, CancellationToken cancellationToken)
     {
         IReadOnlyList<Recommendation> recommendations =
             _recommendations ?? await RecommendAsync(cancellationToken).ConfigureAwait(false);
         HashSet<string>? confirmed = confirmedT2Paths is { Count: > 0 }
             ? new HashSet<string>(confirmedT2Paths, StringComparer.OrdinalIgnoreCase)
             : null;
-        BatchPlan plan = CleanupPlanner.Plan(recommendations, _protection, confirmed);
+        HashSet<string>? selected = selectedPaths is not null
+            ? new HashSet<string>(selectedPaths, StringComparer.OrdinalIgnoreCase)
+            : null;
+        BatchPlan plan = CleanupPlanner.Plan(recommendations, _protection, confirmed, selected);
         _plans[plan.BatchId] = plan;
         return plan;
     }
+
+    public Task<BatchPlan> PlanQuarantineAsync(IReadOnlyList<string> paths, CancellationToken cancellationToken) =>
+        Task.Run(
+            () =>
+            {
+                BatchPlan plan = CleanupPlanner.PlanQuarantine(paths, _protection);
+                _plans[plan.BatchId] = plan;
+                return plan;
+            },
+            cancellationToken);
 
     public Task<IReadOnlyList<ItemResult>> ExecuteBatchAsync(string batchId, CancellationToken cancellationToken)
     {

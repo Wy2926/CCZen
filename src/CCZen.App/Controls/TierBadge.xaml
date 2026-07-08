@@ -1,0 +1,9 @@
+<UserControl x:Class="CCZen.App.Controls.TierBadge"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Border x:Name="Pill" CornerRadius="3" Padding="0,2" Width="64"
+            HorizontalAlignment="Left" VerticalAlignment="Center">
+        <TextBlock x:Name="LabelText" FontSize="11" FontFamily="Microsoft YaHei"
+                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+    </Border>
+</UserControl>

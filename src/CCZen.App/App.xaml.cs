@@ -1,16 +1,11 @@
+using System.Windows;
 using CCZen.App.Services;
 using CCZen.App.ViewModels;
-using Microsoft.UI.Xaml;
 
 namespace CCZen.App;
 
 public partial class App : Application
 {
-    public App()
-    {
-        InitializeComponent();
-    }
-
     /// <summary>Shared engine connection reused by every page.</summary>
     public static IEngineClient Engine { get; } = new EngineClient();
 
@@ -25,11 +20,19 @@ public partial class App : Application
 
     public static SettingsViewModel Settings { get; } = new();
 
-    public static MainWindow? Window { get; private set; }
-
-    protected override void OnLaunched(LaunchActivatedEventArgs args)
+    protected override void OnStartup(StartupEventArgs e)
     {
-        Window = new MainWindow();
-        Window.Activate();
+        Cleaner.ConfirmBeforeClean = () => Settings.ConfirmBeforeClean;
+        Search.BatchRecorded = Cleaner.RecordBatch;
+        base.OnStartup(e);
+    }
+
+    /// <summary>Swaps the merged theme dictionary at runtime (dark is default).</summary>
+    public static void ApplyTheme(bool dark)
+    {
+        var themeUri = dark
+            ? new Uri("Resources/Themes/DarkTheme.xaml", UriKind.Relative)
+            : new Uri("Resources/Themes/LightTheme.xaml", UriKind.Relative);
+        Current.Resources.MergedDictionaries[0] = new ResourceDictionary { Source = themeUri };
     }
 }

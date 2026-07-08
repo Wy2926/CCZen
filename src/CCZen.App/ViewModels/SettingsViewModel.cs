@@ -1,4 +1,3 @@
-using Microsoft.UI.Xaml;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace CCZen.App.ViewModels;
@@ -27,13 +26,5 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     public string Version { get; } = "0.1.0（预览）";
 
-    partial void OnThemeIndexChanged(int value)
-    {
-        App.Window?.SetTheme(value switch
-        {
-            1 => ElementTheme.Light,
-            2 => ElementTheme.Dark,
-            _ => ElementTheme.Default,
-        });
-    }
+    partial void OnThemeIndexChanged(int value) => App.ApplyTheme(dark: value == 0);
 }

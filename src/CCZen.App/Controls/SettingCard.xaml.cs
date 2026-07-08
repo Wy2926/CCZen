@@ -1,52 +1,47 @@
-using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
+using System.Windows;
+using System.Windows.Controls;
 
 namespace CCZen.App.Controls;
 
-/// <summary>
-/// PowerToys-style settings card: icon + header/description on the left,
-/// an action control (toggle, combo box, …) on the right.
-/// </summary>
-public sealed partial class SettingCard : UserControl
+/// <summary>PowerToys-style settings row: icon + header/description + trailing action.</summary>
+public partial class SettingCard : UserControl
 {
-    public static readonly DependencyProperty GlyphProperty =
-        DependencyProperty.Register(nameof(Glyph), typeof(string), typeof(SettingCard), new PropertyMetadata(""));
+    public static readonly DependencyProperty IconProperty =
+        DependencyProperty.Register(nameof(Icon), typeof(string), typeof(SettingCard),
+            new PropertyMetadata("", OnChanged));
 
     public static readonly DependencyProperty HeaderProperty =
-        DependencyProperty.Register(nameof(Header), typeof(string), typeof(SettingCard), new PropertyMetadata(""));
+        DependencyProperty.Register(nameof(Header), typeof(string), typeof(SettingCard),
+            new PropertyMetadata("", OnChanged));
 
     public static readonly DependencyProperty DescriptionProperty =
-        DependencyProperty.Register(nameof(Description), typeof(string), typeof(SettingCard), new PropertyMetadata(""));
+        DependencyProperty.Register(nameof(Description), typeof(string), typeof(SettingCard),
+            new PropertyMetadata("", OnChanged));
 
     public static readonly DependencyProperty ActionContentProperty =
-        DependencyProperty.Register(nameof(ActionContent), typeof(object), typeof(SettingCard), new PropertyMetadata(null));
+        DependencyProperty.Register(nameof(ActionContent), typeof(object), typeof(SettingCard),
+            new PropertyMetadata(null));
+
+    public string Icon { get => (string)GetValue(IconProperty); set => SetValue(IconProperty, value); }
+    public string Header { get => (string)GetValue(HeaderProperty); set => SetValue(HeaderProperty, value); }
+    public string Description { get => (string)GetValue(DescriptionProperty); set => SetValue(DescriptionProperty, value); }
+    public object? ActionContent { get => GetValue(ActionContentProperty); set => SetValue(ActionContentProperty, value); }
 
     public SettingCard()
     {
         InitializeComponent();
+        UpdateVisual();
     }
 
-    public string Glyph
-    {
-        get => (string)GetValue(GlyphProperty);
-        set => SetValue(GlyphProperty, value);
-    }
+    private static void OnChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+        => ((SettingCard)d).UpdateVisual();
 
-    public string Header
+    private void UpdateVisual()
     {
-        get => (string)GetValue(HeaderProperty);
-        set => SetValue(HeaderProperty, value);
-    }
-
-    public string Description
-    {
-        get => (string)GetValue(DescriptionProperty);
-        set => SetValue(DescriptionProperty, value);
-    }
-
-    public object? ActionContent
-    {
-        get => GetValue(ActionContentProperty);
-        set => SetValue(ActionContentProperty, value);
+        IconText.Text = Icon;
+        IconText.Visibility = string.IsNullOrEmpty(Icon) ? Visibility.Collapsed : Visibility.Visible;
+        HeaderText.Text = Header;
+        DescriptionText.Text = Description;
+        DescriptionText.Visibility = string.IsNullOrEmpty(Description) ? Visibility.Collapsed : Visibility.Visible;
     }
 }

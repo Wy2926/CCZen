@@ -53,7 +53,7 @@ public class EngineRpcCleanTests : IDisposable
         IReadOnlyList<Recommendation> recommendations = await client.RecommendAsync(CancellationToken.None);
         Assert.Contains(recommendations, r => r.RuleId == "chrome/http-cache");
 
-        BatchPlan plan = await client.PlanCleanAsync(null, CancellationToken.None);
+        BatchPlan plan = await client.PlanCleanAsync(null, null, CancellationToken.None);
         Assert.NotEmpty(plan.Items);
 
         IReadOnlyList<ItemResult> executed = await client.ExecuteBatchAsync(plan.BatchId, CancellationToken.None);
@@ -76,7 +76,7 @@ public class EngineRpcCleanTests : IDisposable
         await Assert.ThrowsAsync<RemoteInvocationException>(
             () => client.ExecuteBatchAsync("no-such-batch", CancellationToken.None));
 
-        BatchPlan plan = await client.PlanCleanAsync(null, CancellationToken.None);
+        BatchPlan plan = await client.PlanCleanAsync(null, null, CancellationToken.None);
         await client.ExecuteBatchAsync(plan.BatchId, CancellationToken.None);
 
         // SAFE-FR-010: a confirmed plan snapshot executes exactly once.
@@ -84,5 +84,40 @@ public class EngineRpcCleanTests : IDisposable
             () => client.ExecuteBatchAsync(plan.BatchId, CancellationToken.None));
 
         await client.RestoreBatchAsync(Path.GetPathRoot(_root)!, plan.BatchId, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task PlanClean_WithSelectedPaths_LimitsPlanToSelection()
+    {
+        IEngineRpc client = Connect();
+
+        IReadOnlyList<Recommendation> recommendations = await client.RecommendAsync(CancellationToken.None);
+        Assert.NotEmpty(recommendations);
+
+        BatchPlan empty = await client.PlanCleanAsync(null, [], CancellationToken.None);
+        Assert.Empty(empty.Items);
+
+        string picked = recommendations[0].Path;
+        BatchPlan plan = await client.PlanCleanAsync(null, [picked], CancellationToken.None);
+        Assert.All(plan.Items, i => Assert.Equal(picked, i.Path));
+    }
+
+    [Fact]
+    public async Task PlanQuarantineExecuteRestore_RoundTripsOverRpc()
+    {
+        IEngineRpc client = Connect();
+        string big = Path.Combine(_root, "big.bin");
+        File.WriteAllBytes(big, new byte[8192]);
+
+        BatchPlan plan = await client.PlanQuarantineAsync([big], CancellationToken.None);
+        Assert.Single(plan.Items);
+        Assert.Equal(CleanupPlanner.ManualRuleId, plan.Items[0].RuleId);
+
+        IReadOnlyList<ItemResult> executed = await client.ExecuteBatchAsync(plan.BatchId, CancellationToken.None);
+        Assert.All(executed, r => Assert.Equal(ItemOutcome.Quarantined, r.Outcome));
+        Assert.False(File.Exists(big));
+
+        await client.RestoreBatchAsync(Path.GetPathRoot(_root)!, plan.BatchId, CancellationToken.None);
+        Assert.True(File.Exists(big));
     }
 }
