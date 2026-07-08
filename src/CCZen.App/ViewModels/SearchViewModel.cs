@@ -13,7 +13,7 @@ namespace CCZen.App.ViewModels;
 /// <summary>
 /// View model for conditional large file/directory search (SCAN-FR-025):
 /// scans on first use, then queries the in-memory index instantly. Checked
-/// results can be moved to quarantine (reversible per batch).
+/// results can be deleted directly or moved to quarantine (reversible per batch).
 /// </summary>
 public sealed partial class SearchViewModel : OperationViewModel
 {
@@ -47,7 +47,7 @@ public sealed partial class SearchViewModel : OperationViewModel
     private string _indexStatus = IndexStatusFormatter.NotBuilt;
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(QuarantineSelectedCommand))]
+    [NotifyCanExecuteChangedFor(nameof(DeleteSelectedCommand))]
     private int _selectedCount;
 
     [ObservableProperty]
@@ -60,11 +60,15 @@ public sealed partial class SearchViewModel : OperationViewModel
 
     public ObservableCollection<SelectableSearchRow> Results { get; } = [];
 
-    /// <summary>Set by the shell to show a modal confirm dialog; defaults to auto-confirm.</summary>
-    public Func<string, string, Task<bool>> ConfirmInteraction { get; set; } =
-        (_, _) => Task.FromResult(true);
+    /// <summary>Settings default: true = quarantine, false = direct delete.</summary>
+    public Func<bool> DefaultUseQuarantine { get; set; } = () => true;
 
-    /// <summary>Set by the shell so executed batches land in the quarantine center.</summary>
+    /// <summary>Delete confirmation with quarantine toggle; returns null if cancelled.</summary>
+    public Func<string, string, bool, Task<DeleteConfirmResult?>> ConfirmDeleteInteraction { get; set; } =
+        (_, _, defaultUseQuarantine) => Task.FromResult<DeleteConfirmResult?>(
+            new DeleteConfirmResult(Confirmed: true, UseQuarantine: defaultUseQuarantine));
+
+    /// <summary>Set by the shell so quarantined batches land in the quarantine center.</summary>
     public Action<QuarantineBatchRow>? BatchRecorded { get; set; }
 
     [RelayCommand]
@@ -76,10 +80,10 @@ public sealed partial class SearchViewModel : OperationViewModel
         },
         ScanPhases);
 
-    [RelayCommand(CanExecute = nameof(CanQuarantine))]
-    private Task QuarantineSelectedAsync() => RunGuardedAsync(ExecuteQuarantineAsync);
+    [RelayCommand(CanExecute = nameof(CanDelete))]
+    private Task DeleteSelectedAsync() => RunGuardedAsync(ExecuteDeleteAsync);
 
-    private bool CanQuarantine() => SelectedCount > 0;
+    private bool CanDelete() => SelectedCount > 0;
 
     private async Task EnsureIndexAsync()
     {
@@ -117,7 +121,7 @@ public sealed partial class SearchViewModel : OperationViewModel
         }
 
         RecomputeSelection();
-        Status = $"命中 {entries.Count} 项（按占用空间降序，最多 {MaxResults} 项）。";
+        Status = $"命中 {entries.Count} 项（按占用空间降序，最多 {MaxResults} 项；目录结果已去除嵌套父路径）。";
     }
 
     private void RecomputeSelection()
@@ -129,61 +133,68 @@ public sealed partial class SearchViewModel : OperationViewModel
             : $"已选 {selected.Count} 项 · 约 {SizeFormatter.Format(selected.Sum(r => r.SizeBytes))}";
     }
 
-    private async Task ExecuteQuarantineAsync()
+    private async Task ExecuteDeleteAsync()
     {
         var selected = Results.Where(r => r.IsSelected).ToList();
         if (selected.Count == 0)
         {
-            Status = "请先勾选需要隔离的项目。";
+            Status = "请先勾选需要删除的项目。";
             return;
         }
 
         long totalBytes = selected.Sum(r => r.SizeBytes);
-        bool confirmed = await ConfirmInteraction(
-            "确认移入隔离区？",
-            $"将把 {selected.Count} 项（约 {SizeFormatter.Format(totalBytes)}）移入隔离区。文件不会被删除，可在隔离区整批还原。");
-        if (!confirmed)
+        bool defaultQuarantine = DefaultUseQuarantine();
+        DeleteConfirmResult? confirm = await ConfirmDeleteInteraction(
+            "确认删除所选项目？",
+            $"将处理 {selected.Count} 项（约 {SizeFormatter.Format(totalBytes)}）。可在下方选择移入隔离区或直接永久删除。",
+            defaultQuarantine);
+        if (confirm is null)
         {
             Status = "已取消。";
             return;
         }
 
+        bool useQuarantine = confirm.UseQuarantine;
         BatchPlan plan = await _engine.PlanQuarantineAsync(selected.Select(r => r.Path).ToList());
         if (plan.Items.Count == 0)
         {
-            Status = "所选项目均不可隔离（受保护或已消失）。";
+            Status = "所选项目均不可处理（受保护或已消失）。";
             return;
         }
 
+        PrepareExecuteProgress(plan.Items.Select(i => i.Path));
+        string verb = useQuarantine ? "正在移入隔离区" : "正在永久删除";
         IReadOnlyList<ItemResult> results = await _engine.ExecuteBatchAsync(
             plan.BatchId,
-            permanentDelete: false,
-            new Progress<ExecuteProgress>(p =>
-            {
-                ProgressValue = p.Total == 0 ? 100 : 100.0 * p.Done / p.Total;
-                ProgressPhase = $"正在移入隔离区 {p.Done}/{p.Total}：{p.CurrentPath}";
-            }));
-        int quarantined = results.Count(r => r.Outcome == ItemOutcome.Quarantined);
+            permanentDelete: !useQuarantine,
+            CreateBatchProgressReporter(verb));
+        FinalizeExecuteProgress(results);
 
-        var batch = new QuarantineBatchRow(
-            plan.BatchId,
-            Path.GetPathRoot(plan.Items[0].Path) ?? "C:\\",
-            $"{quarantined}/{results.Count} 项已移入隔离区（大文件搜索）",
-            DateTime.Now.ToString("yyyy-MM-dd HH:mm"));
-        BatchRecorded?.Invoke(batch);
+        int succeeded = results.Count(r => r.Outcome is ItemOutcome.Quarantined or ItemOutcome.Deleted);
+
+        if (useQuarantine && succeeded > 0)
+        {
+            var batch = new QuarantineBatchRow(
+                plan.BatchId,
+                Path.GetPathRoot(plan.Items[0].Path) ?? "C:\\",
+                $"{succeeded}/{results.Count} 项已移入隔离区（大文件搜索）",
+                DateTime.Now.ToString("yyyy-MM-dd HH:mm"));
+            BatchRecorded?.Invoke(batch);
+        }
 
         foreach (SelectableSearchRow row in results
-                     .Where(r => r.Outcome == ItemOutcome.Quarantined)
+                     .Where(r => r.Outcome is ItemOutcome.Quarantined or ItemOutcome.Deleted)
                      .Join(selected, r => r.Path, s => s.Path, (_, s) => s, StringComparer.OrdinalIgnoreCase))
         {
             Results.Remove(row);
         }
 
         RecomputeSelection();
-        string failHint = quarantined < results.Count
-            ? $"；{results.Count - quarantined} 项未处理（{string.Join("；", results.Where(r => r.Outcome != ItemOutcome.Quarantined).Select(r => new SkippedItemRow(r).Reason).Distinct())}）"
+        string actionLabel = useQuarantine ? "移入隔离区" : "永久删除";
+        string failHint = succeeded < results.Count
+            ? $"；{results.Count - succeeded} 项未处理（详见上方进度列表）"
             : string.Empty;
-        Status = $"批次 {plan.BatchId}：{quarantined}/{results.Count} 项已移入隔离区，可在隔离区还原{failHint}。";
+        Status = $"批次 {plan.BatchId}：{succeeded}/{results.Count} 项已{actionLabel}{failHint}。";
     }
 
     private long ParseMinSizeBytes() =>

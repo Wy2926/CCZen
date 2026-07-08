@@ -36,10 +36,12 @@
         </Border>
 
         <!-- Progress -->
-        <StackPanel Grid.Row="2" Margin="0,0,0,12"
-                    Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}">
-            <ProgressBar Value="{Binding ProgressValue}" Maximum="100" Height="6" />
-            <TextBlock Text="{Binding ProgressPhase}" Style="{StaticResource SecondaryText}" Margin="0,6,0,0" />
+        <StackPanel Grid.Row="2" Margin="0,0,0,12">
+            <StackPanel Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}">
+                <ProgressBar Value="{Binding ProgressValue}" Maximum="100" Height="6" />
+                <TextBlock Text="{Binding ProgressPhase}" Style="{StaticResource SecondaryText}" Margin="0,6,0,0" />
+            </StackPanel>
+            <controls:ExecuteProgressPanel DataContext="{Binding}" />
         </StackPanel>
 
         <!-- Groups -->
@@ -221,7 +223,7 @@
                     <Button Content="↩ 撤销上次" Command="{Binding UndoCommand}" Margin="0,0,10,0" />
                     <Button Content="🧹 清理所选" Style="{StaticResource AccentButton}"
                             Command="{Binding CleanSelectedCommand}"
-                            ToolTip="清理方式由设置决定：默认移入隔离区（可撤销），可在设置中改为直接永久删除" />
+                            ToolTip="清理前可选择移入隔离区或直接永久删除（默认方式见设置）" />
                 </StackPanel>
                 <StackPanel VerticalAlignment="Center">
                     <TextBlock Text="{Binding SelectionSummary}" Style="{StaticResource PrimaryText}" />

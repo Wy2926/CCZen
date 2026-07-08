@@ -139,8 +139,9 @@
                 </DockPanel>
             </Border>
 
-            <!-- Global message dialog overlay -->
+            <!-- Global dialog overlays -->
             <controls:MessageDialog x:Name="GlobalDialog" Grid.Row="0" Grid.RowSpan="3" Grid.ColumnSpan="2" Panel.ZIndex="100" />
+            <controls:DeleteConfirmDialog x:Name="GlobalDeleteDialog" Grid.Row="0" Grid.RowSpan="3" Grid.ColumnSpan="2" Panel.ZIndex="101" />
         </Grid>
     </Border>
 </Window>
