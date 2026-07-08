@@ -23,8 +23,15 @@ public interface IEngineClient
     /// <summary>Runs adapter + generic rule evaluation and returns merged recommendations.</summary>
     Task<IReadOnlyList<Recommendation>> RecommendAsync(CancellationToken cancellationToken = default);
 
-    /// <summary>Builds an immutable batch plan from the last recommendations (T0/T1 only by default).</summary>
-    Task<BatchPlan> PlanCleanAsync(IReadOnlyList<string>? confirmedT2Paths = null, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Builds an immutable batch plan from the last recommendations. Default
+    /// selection is T0/T1; T2 paths need explicit confirmation. A non-null
+    /// <paramref name="selectedPaths"/> limits the plan to checked items.
+    /// </summary>
+    Task<BatchPlan> PlanCleanAsync(IReadOnlyList<string>? confirmedT2Paths = null, IReadOnlyList<string>? selectedPaths = null, CancellationToken cancellationToken = default);
+
+    /// <summary>Builds a reversible quarantine plan for user-picked paths (large-file search).</summary>
+    Task<BatchPlan> PlanQuarantineAsync(IReadOnlyList<string> paths, CancellationToken cancellationToken = default);
 
     /// <summary>Executes a planned batch exactly once (SAFE-FR-010); items move to quarantine.</summary>
     Task<IReadOnlyList<ItemResult>> ExecuteBatchAsync(string batchId, CancellationToken cancellationToken = default);

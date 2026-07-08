@@ -1,67 +1,121 @@
+using System.Windows;
+using System.Windows.Controls;
+using CCZen.App.Controls;
 using CCZen.App.Views;
-using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
 
 namespace CCZen.App;
 
 /// <summary>
-/// Application shell: PowerToys-style left navigation with a content frame.
-/// All page state lives in shared view models (see <see cref="App"/>).
+/// Application shell: borderless window with custom title bar, left sidebar
+/// navigation, status bar and a global modal dialog overlay. All page state
+/// lives in shared view models (see <see cref="App"/>).
 /// </summary>
-public sealed partial class MainWindow : Window
+public partial class MainWindow : Window
 {
+    private readonly Dictionary<string, UserControl> _pages = [];
+
     public MainWindow()
     {
         InitializeComponent();
-        ExtendsContentIntoTitleBar = true;
-        SetTitleBar(AppTitleBar);
-        ContentFrame.Navigate(typeof(DashboardPage));
+        App.Cleaner.ConfirmInteraction = GlobalDialog.ShowConfirm;
+        App.Search.ConfirmInteraction = GlobalDialog.ShowConfirm;
+        App.Cleaner.PropertyChanged += (_, e) => OnOperationChanged(e.PropertyName);
+        App.Search.PropertyChanged += (_, e) => OnOperationChanged(e.PropertyName);
+        NavigateTo("dashboard");
+        Loaded += async (_, _) => await ProbeEngineAsync();
     }
 
     /// <summary>Programmatic navigation used by dashboard quick actions.</summary>
     public void NavigateTo(string tag)
     {
-        foreach (object item in Nav.MenuItems)
+        RadioButton? button = tag switch
         {
-            if (item is NavigationViewItem navItem && (string?)navItem.Tag == tag)
-            {
-                Nav.SelectedItem = navItem;
-                return;
-            }
-        }
-    }
-
-    public void SetTheme(ElementTheme theme)
-    {
-        if (Content is FrameworkElement root)
+            "dashboard" => NavDashboard,
+            "cleaner" => NavCleaner,
+            "largefiles" => NavLargeFiles,
+            "duplicates" => NavDuplicates,
+            "adapters" => NavAdapters,
+            "quarantine" => NavQuarantine,
+            "settings" => NavSettings,
+            _ => null,
+        };
+        if (button is null)
         {
-            root.RequestedTheme = theme;
-        }
-    }
-
-    private void OnNavSelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
-    {
-        if (args.IsSettingsSelected)
-        {
-            ContentFrame.Navigate(typeof(SettingsPage));
             return;
         }
 
-        string? tag = (args.SelectedItem as NavigationViewItem)?.Tag as string;
-        Type? page = tag switch
-        {
-            "dashboard" => typeof(DashboardPage),
-            "cleaner" => typeof(CleanerPage),
-            "largefiles" => typeof(LargeFilesPage),
-            "duplicates" => typeof(DuplicatesPage),
-            "adapters" => typeof(AdaptersPage),
-            "quarantine" => typeof(QuarantinePage),
-            _ => null,
-        };
+        button.IsChecked = true;
+        ShowPage(tag);
+    }
 
-        if (page is not null && ContentFrame.CurrentSourcePageType != page)
+    private void OnNavChecked(object sender, RoutedEventArgs e)
+    {
+        if (sender is RadioButton { Tag: string tag })
         {
-            ContentFrame.Navigate(page);
+            ShowPage(tag);
         }
     }
+
+    private void ShowPage(string tag)
+    {
+        if (ContentHost is null)
+        {
+            return;
+        }
+
+        if (!_pages.TryGetValue(tag, out UserControl? page))
+        {
+            page = tag switch
+            {
+                "cleaner" => new CleanerPage(),
+                "largefiles" => new LargeFilesPage(),
+                "duplicates" => new DuplicatesPage(),
+                "adapters" => new AdaptersPage(),
+                "quarantine" => new QuarantinePage(),
+                "settings" => new SettingsPage(),
+                _ => new DashboardPage(),
+            };
+            _pages[tag] = page;
+        }
+
+        ContentHost.Content = page;
+    }
+
+    private void OnOperationChanged(string? propertyName)
+    {
+        if (propertyName is not (nameof(App.Cleaner.IsBusy) or nameof(App.Cleaner.ProgressPhase)))
+        {
+            return;
+        }
+
+        bool busy = App.Cleaner.IsBusy || App.Search.IsBusy;
+        StatusText.Text = busy
+            ? (App.Cleaner.IsBusy ? App.Cleaner.ProgressPhase : App.Search.ProgressPhase)
+            : "就绪";
+    }
+
+    private async Task ProbeEngineAsync()
+    {
+        try
+        {
+            await App.Engine.GetStatusAsync();
+            EngineStatus.Status = "Online";
+            EngineStatus.Label = "引擎已连接";
+        }
+        catch (Exception)
+        {
+            EngineStatus.Status = "Offline";
+            EngineStatus.Label = "引擎不可用";
+        }
+    }
+
+    private void OnMinimize(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
+
+    private void OnMaxRestore(object sender, RoutedEventArgs e)
+    {
+        WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+        MaxRestoreBtn.Content = WindowState == WindowState.Maximized ? "\uE923" : "\uE922";
+    }
+
+    private void OnClose(object sender, RoutedEventArgs e) => Close();
 }

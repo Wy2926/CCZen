@@ -1,0 +1,11 @@
+<UserControl x:Class="CCZen.App.Controls.SectionHeader"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <DockPanel Margin="0,0,0,8">
+        <TextBlock DockPanel.Dock="Left" Text="{Binding Title, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                   Foreground="{DynamicResource PrimaryTextBrush}" FontFamily="Microsoft YaHei"
+                   FontSize="14" VerticalAlignment="Center" />
+        <ContentPresenter DockPanel.Dock="Right" HorizontalAlignment="Right"
+                          Content="{Binding Action, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+    </DockPanel>
+</UserControl>

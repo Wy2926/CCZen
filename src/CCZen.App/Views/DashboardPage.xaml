@@ -1,116 +1,80 @@
-<Page
-    x:Class="CCZen.App.Views.DashboardPage"
-    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:models="using:CCZen.App.Models">
+<UserControl x:Class="CCZen.App.Views.DashboardPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:CCZen.App.Controls">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="16" MaxWidth="1100" HorizontalAlignment="Stretch">
+            <TextBlock Text="总览" Style="{StaticResource PageTitle}" />
+            <TextBlock Text="查看磁盘空间占用概况，并快速进入清理与空间分析工具。"
+                       Style="{StaticResource SecondaryText}" Margin="0,4,0,16" />
 
-    <ScrollViewer>
-        <StackPanel Padding="{StaticResource PagePadding}" MaxWidth="1100" HorizontalAlignment="Stretch">
-            <TextBlock Text="仪表盘" Style="{StaticResource PageTitleStyle}" />
-            <TextBlock
-                Text="查看磁盘空间占用概况，并快速进入清理与空间分析工具。"
-                Style="{StaticResource PageDescriptionStyle}" />
-
-            <TextBlock Text="快速操作" Style="{StaticResource SectionHeaderStyle}" />
-            <Grid ColumnSpacing="12">
+            <controls:SectionHeader Title="快速操作" />
+            <Grid Margin="0,0,0,16">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
 
-                <Button
-                    Tag="cleaner"
-                    Click="OnQuickActionClick"
-                    HorizontalAlignment="Stretch"
-                    HorizontalContentAlignment="Stretch"
-                    Padding="16"
-                    MinHeight="96">
-                    <StackPanel Spacing="6">
-                        <FontIcon Glyph="&#xEA99;" FontSize="20" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" HorizontalAlignment="Left" />
-                        <TextBlock Text="智能清理" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                        <TextBlock
-                            Text="规则引擎扫描并推荐可清理项"
-                            Style="{StaticResource CaptionTextBlockStyle}"
-                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                            TextWrapping="Wrap" />
+                <Button Grid.Column="0" Tag="cleaner" Click="OnQuickActionClick"
+                        HorizontalContentAlignment="Left" Padding="16" MinHeight="96" Margin="0,0,6,0">
+                    <StackPanel>
+                        <TextBlock Text="🧹" FontSize="20" Foreground="{DynamicResource AccentBrush}" />
+                        <TextBlock Text="智能清理" Style="{StaticResource PrimaryText}" Margin="0,6,0,2" />
+                        <TextBlock Text="规则引擎扫描并推荐可清理项" Style="{StaticResource SecondaryText}"
+                                   FontSize="11" TextWrapping="Wrap" />
                     </StackPanel>
                 </Button>
 
-                <Button
-                    Grid.Column="1"
-                    Tag="largefiles"
-                    Click="OnQuickActionClick"
-                    HorizontalAlignment="Stretch"
-                    HorizontalContentAlignment="Stretch"
-                    Padding="16"
-                    MinHeight="96">
-                    <StackPanel Spacing="6">
-                        <FontIcon Glyph="&#xE721;" FontSize="20" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" HorizontalAlignment="Left" />
-                        <TextBlock Text="大文件搜索" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                        <TextBlock
-                            Text="MFT/USN 秒级索引，按条件定位大文件"
-                            Style="{StaticResource CaptionTextBlockStyle}"
-                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                            TextWrapping="Wrap" />
+                <Button Grid.Column="1" Tag="largefiles" Click="OnQuickActionClick"
+                        HorizontalContentAlignment="Left" Padding="16" MinHeight="96" Margin="6,0">
+                    <StackPanel>
+                        <TextBlock Text="🔍" FontSize="20" Foreground="{DynamicResource AccentBrush}" />
+                        <TextBlock Text="大文件搜索" Style="{StaticResource PrimaryText}" Margin="0,6,0,2" />
+                        <TextBlock Text="MFT/USN 秒级索引，按条件定位大文件" Style="{StaticResource SecondaryText}"
+                                   FontSize="11" TextWrapping="Wrap" />
                     </StackPanel>
                 </Button>
 
-                <Button
-                    Grid.Column="2"
-                    Tag="quarantine"
-                    Click="OnQuickActionClick"
-                    HorizontalAlignment="Stretch"
-                    HorizontalContentAlignment="Stretch"
-                    Padding="16"
-                    MinHeight="96">
-                    <StackPanel Spacing="6">
-                        <FontIcon Glyph="&#xE7A7;" FontSize="20" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" HorizontalAlignment="Left" />
-                        <TextBlock Text="隔离区与撤销" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                        <TextBlock
-                            Text="所有清理默认可撤销，误删可一键还原"
-                            Style="{StaticResource CaptionTextBlockStyle}"
-                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                            TextWrapping="Wrap" />
+                <Button Grid.Column="2" Tag="quarantine" Click="OnQuickActionClick"
+                        HorizontalContentAlignment="Left" Padding="16" MinHeight="96" Margin="6,0,0,0">
+                    <StackPanel>
+                        <TextBlock Text="🗃" FontSize="20" Foreground="{DynamicResource AccentBrush}" />
+                        <TextBlock Text="隔离区与撤销" Style="{StaticResource PrimaryText}" Margin="0,6,0,2" />
+                        <TextBlock Text="所有清理默认可撤销，误删可一键还原" Style="{StaticResource SecondaryText}"
+                                   FontSize="11" TextWrapping="Wrap" />
                     </StackPanel>
                 </Button>
             </Grid>
 
-            <Grid>
-                <TextBlock Text="磁盘空间" Style="{StaticResource SectionHeaderStyle}" />
-                <Button
-                    Content="刷新"
-                    Command="{x:Bind ViewModel.RefreshCommand}"
-                    HorizontalAlignment="Right"
-                    VerticalAlignment="Bottom" />
-            </Grid>
+            <controls:SectionHeader Title="磁盘空间">
+                <controls:SectionHeader.Action>
+                    <Button Content="刷新" Command="{Binding RefreshCommand}" Padding="12,4" />
+                </controls:SectionHeader.Action>
+            </controls:SectionHeader>
 
-            <ItemsControl ItemsSource="{x:Bind ViewModel.Drives}">
+            <ItemsControl ItemsSource="{Binding Drives}">
                 <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="models:DriveRow">
-                        <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,8">
-                            <Grid ColumnSpacing="16">
+                    <DataTemplate>
+                        <Border Style="{StaticResource CardBorder}" Margin="0,0,0,8">
+                            <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
-                                <FontIcon Glyph="&#xEDA2;" FontSize="28" VerticalAlignment="Center" />
-                                <StackPanel Grid.Column="1" Spacing="6">
-                                    <Grid>
-                                        <StackPanel Orientation="Horizontal" Spacing="8">
-                                            <TextBlock Text="{x:Bind Label}" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                                            <TextBlock Text="{x:Bind Name}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <TextBlock Text="💽" FontSize="26" VerticalAlignment="Center" Margin="0,0,16,0" />
+                                <StackPanel Grid.Column="1">
+                                    <DockPanel Margin="0,0,0,6">
+                                        <TextBlock DockPanel.Dock="Right" Text="{Binding FileSystem}"
+                                                   Style="{StaticResource SecondaryText}" HorizontalAlignment="Right" />
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="{Binding Label}" Style="{StaticResource PrimaryText}" Margin="0,0,8,0" />
+                                            <TextBlock Text="{Binding Name}" Style="{StaticResource SecondaryText}" />
                                         </StackPanel>
-                                        <TextBlock
-                                            Text="{x:Bind FileSystem}"
-                                            HorizontalAlignment="Right"
-                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                    </Grid>
-                                    <ProgressBar Value="{x:Bind UsedPercent}" Maximum="100" />
-                                    <TextBlock
-                                        Text="{x:Bind Detail}"
-                                        Style="{StaticResource CaptionTextBlockStyle}"
-                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </DockPanel>
+                                    <ProgressBar Value="{Binding UsedPercent, Mode=OneWay}" Maximum="100" Height="6" />
+                                    <TextBlock Text="{Binding Detail}" Style="{StaticResource SecondaryText}"
+                                               FontSize="11" Margin="0,6,0,0" />
                                 </StackPanel>
                             </Grid>
                         </Border>
@@ -119,4 +83,4 @@
             </ItemsControl>
         </StackPanel>
     </ScrollViewer>
-</Page>
+</UserControl>

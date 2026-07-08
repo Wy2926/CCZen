@@ -1,3 +1,5 @@
+using System.IO;
+
 namespace CCZen.App.Models;
 
 /// <summary>Display card for one fixed drive on the dashboard.</summary>

@@ -14,7 +14,7 @@ applies-to: Windows 10 版本 1809 及更高版本
 | 层 | 选型 | 依据 |
 |----|------|------|
 | 运行时 | [.NET 8 (LTS)](https://learn.microsoft.com/dotnet/core/whats-new/dotnet-8/overview)，C# 12 | LTS 支持至 2026-11；后续升级 .NET 10 LTS |
-| UI | [WinUI 3（Windows App SDK）](https://learn.microsoft.com/windows/apps/winui/winui3/) + CommunityToolkit.Mvvm | 微软当前主推的桌面 UI 栈；Win10 1809+ 支持 |
+| UI | [WPF (.NET 8)](https://learn.microsoft.com/dotnet/desktop/wpf/) + CommunityToolkit.Mvvm | 自 WinUI 3 迁移（ADR：全面复用 net-probe 设计体系）；DynamicResource 主题字典支持运行时深/浅切换；无边框窗口 + WindowChrome 自绘标题栏 |
 | Win32 互操作 | [CsWin32 源生成器](https://github.com/microsoft/CsWin32)（微软官方） | 强类型 P/Invoke，覆盖本 spec 全部 API |
 | 引擎 | CCZen.Engine 类库 + 通用宿主（`Microsoft.Extensions.Hosting`） | 标准 .NET 模式 |
 | IPC | `System.IO.Pipes` 命名管道 + [StreamJsonRpc](https://github.com/microsoft/vs-streamjsonrpc)（微软官方 JSON-RPC 库） | 成熟先例（VS 内部使用） |
@@ -28,7 +28,7 @@ applies-to: Windows 10 版本 1809 及更高版本
 ## 进程模型
 
 ```
-CCZen.App    (WinUI 3, 标准权限)
+CCZen.App    (WPF, 标准权限)
    │ NamedPipe + StreamJsonRpc
 CCZen.Engine (标准权限；可选托盘常驻做 USN 保鲜)
    │ NamedPipe（PipeSecurity ACL + 客户端签名校验，见 SAFE-FR-041）
@@ -67,6 +67,17 @@ CCZen.Helper (按需 UAC 提权：卷句柄读取、系统区批次执行)
   - 性能门禁：BenchmarkDotNet 基准回归（SCAN-NFR-001/002）
 - **安全审查**（security-review skill）：删除路径、提权 IPC、验签相关 PR 强制审查
 - 提交规范：`feat|fix|refactor|docs|test|chore|perf|ci: <desc>`
+
+## UI 体系（net-probe 设计系统）
+
+- **主题**：`Resources/Themes/DarkTheme.xaml`（默认）/ `LightTheme.xaml` 语义色字典（PrimaryBackground、CardBackground、Accent、Tier0–3 徽章色等），全部控件经 `DynamicResource` 引用，设置页切换即时生效
+- **样式**：`Resources/Styles/BaseStyles.xaml`（PageTitle/PrimaryText/SecondaryText/DataText 字级体系；中文 Microsoft YaHei，数据列 Cascadia Code/Consolas）+ `ControlStyles.xaml`（Button/AccentButton/ComboBox/TextBox/CheckBox（含三态横杠）/Expander/ScrollBar/NavButton）
+- **共享控件**：MetricCard、SectionHeader、StatusIndicator、EmptyState、MessageDialog（全局模态遮罩）、SettingCard、TierBadge（T0–T3 彩色药丸）
+- **勾选模型**：
+  - 智能清理：规则组三态复选框（全选/不选/部分）+ 组内逐项复选框；T0/T1 默认勾选，T2 需手动勾选并二次确认，T3/report-only 不可勾选；底部汇总栏实时显示「已选 N 项 · 约 X GB」
+  - 大文件搜索：结果行复选框，所选项可「移入隔离区（可撤销）」，批次记入撤销中心
+  - 引擎契约：`PlanCleanAsync(confirmedT2Paths, selectedPaths)` 按勾选过滤计划；`PlanQuarantineAsync(paths)` 构建手动隔离批次
+- **外壳**：无边框窗口（WindowChrome，CaptionHeight 32）+ 左侧 RadioButton 导航（accent 指示条）+ 底部状态栏（引擎连接状态 + 操作阶段文案）
 
 ## 里程碑
 

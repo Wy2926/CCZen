@@ -77,6 +77,45 @@ public class CleanupPlannerTests : IDisposable
     }
 
     [Fact]
+    public void Plan_WithSelectedPaths_LimitsToSelection()
+    {
+        string t0 = Write(@"work\a.tmp");
+        string t1 = Write(@"work\b.log");
+        var selected = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { t1 };
+
+        BatchPlan plan = CleanupPlanner.Plan([Rec(t0, Tier.T0), Rec(t1, Tier.T1)], _protection, null, selected);
+
+        Assert.Single(plan.Items);
+        Assert.Equal(t1, plan.Items[0].Path);
+    }
+
+    [Fact]
+    public void Plan_SelectedT2_StillRequiresConfirmation()
+    {
+        string t2 = Write(@"work\c.bak");
+        var selected = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { t2 };
+
+        BatchPlan unconfirmed = CleanupPlanner.Plan([Rec(t2, Tier.T2)], _protection, null, selected);
+        Assert.Empty(unconfirmed.Items);
+
+        BatchPlan confirmed = CleanupPlanner.Plan([Rec(t2, Tier.T2)], _protection, selected, selected);
+        Assert.Single(confirmed.Items);
+    }
+
+    [Fact]
+    public void PlanQuarantine_ExcludesProtected_AndTagsManualRule()
+    {
+        string picked = Write(@"work\huge.iso");
+        string inside = Write(@"protected\asset.tmp");
+
+        BatchPlan plan = CleanupPlanner.PlanQuarantine([picked, inside], _protection);
+
+        Assert.Single(plan.Items);
+        Assert.Equal(picked, plan.Items[0].Path);
+        Assert.Equal(CleanupPlanner.ManualRuleId, plan.Items[0].RuleId);
+    }
+
+    [Fact]
     public void Plan_SkipsVanishedPaths()
     {
         string ghost = Path.Combine(_root, "work", "gone.tmp");

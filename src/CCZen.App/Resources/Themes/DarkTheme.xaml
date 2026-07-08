@@ -1,0 +1,74 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- === Semantic Colors === -->
+    <Color x:Key="PrimaryBackgroundColor">#1E1E2E</Color>
+    <Color x:Key="CardBackgroundColor">#2A2A3C</Color>
+    <Color x:Key="SidebarBackgroundColor">#16161E</Color>
+    <Color x:Key="PrimaryTextColor">#E0E0E0</Color>
+    <Color x:Key="SecondaryTextColor">#8888A0</Color>
+    <Color x:Key="AccentColor">#4FC3F7</Color>
+    <Color x:Key="SuccessColor">#66BB6A</Color>
+    <Color x:Key="WarningColor">#FFA726</Color>
+    <Color x:Key="ErrorColor">#EF5350</Color>
+    <Color x:Key="InfoColor">#42A5F5</Color>
+    <Color x:Key="BorderColor">#3A3A4C</Color>
+    <Color x:Key="HoverColor">#3A3A4C</Color>
+    <Color x:Key="SelectedColor">#3A3A5C</Color>
+
+    <!-- === Interactive State Colors === -->
+    <Color x:Key="ControlHoverColor">#363648</Color>
+    <Color x:Key="ControlPressedColor">#2E2E40</Color>
+    <Color x:Key="ControlInputColor">#222234</Color>
+    <Color x:Key="ControlHeaderColor">#1A1A2C</Color>
+    <Color x:Key="ControlSubtleBorderColor">#50506A</Color>
+    <Color x:Key="ControlSubtleColor">#2E2E42</Color>
+    <Color x:Key="ScrollThumbColor">#44446A</Color>
+    <Color x:Key="StatusBarColor">#141420</Color>
+    <Color x:Key="NavActiveColor">#1E1E30</Color>
+    <Color x:Key="NavHoverColor">#1A1A2A</Color>
+    <Color x:Key="RowAlternateColor">#24243A</Color>
+    <Color x:Key="RowHoverColor">#2E2E44</Color>
+    <Color x:Key="RowSelectedColor">#33335A</Color>
+    <Color x:Key="TabHoverColor">#2E2E40</Color>
+
+    <!-- === Brushes === -->
+    <SolidColorBrush x:Key="PrimaryBackgroundBrush" Color="{StaticResource PrimaryBackgroundColor}" />
+    <SolidColorBrush x:Key="CardBackgroundBrush" Color="{StaticResource CardBackgroundColor}" />
+    <SolidColorBrush x:Key="SidebarBackgroundBrush" Color="{StaticResource SidebarBackgroundColor}" />
+    <SolidColorBrush x:Key="PrimaryTextBrush" Color="{StaticResource PrimaryTextColor}" />
+    <SolidColorBrush x:Key="SecondaryTextBrush" Color="{StaticResource SecondaryTextColor}" />
+    <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource AccentColor}" />
+    <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource SuccessColor}" />
+    <SolidColorBrush x:Key="WarningBrush" Color="{StaticResource WarningColor}" />
+    <SolidColorBrush x:Key="ErrorBrush" Color="{StaticResource ErrorColor}" />
+    <SolidColorBrush x:Key="InfoBrush" Color="{StaticResource InfoColor}" />
+    <SolidColorBrush x:Key="BorderBrush" Color="{StaticResource BorderColor}" />
+    <SolidColorBrush x:Key="HoverBrush" Color="{StaticResource HoverColor}" />
+    <SolidColorBrush x:Key="SelectedBrush" Color="{StaticResource SelectedColor}" />
+    <SolidColorBrush x:Key="ControlHoverBrush" Color="{StaticResource ControlHoverColor}" />
+    <SolidColorBrush x:Key="ControlPressedBrush" Color="{StaticResource ControlPressedColor}" />
+    <SolidColorBrush x:Key="ControlInputBrush" Color="{StaticResource ControlInputColor}" />
+    <SolidColorBrush x:Key="ControlHeaderBrush" Color="{StaticResource ControlHeaderColor}" />
+    <SolidColorBrush x:Key="ControlSubtleBorderBrush" Color="{StaticResource ControlSubtleBorderColor}" />
+    <SolidColorBrush x:Key="ControlSubtleBrush" Color="{StaticResource ControlSubtleColor}" />
+    <SolidColorBrush x:Key="ScrollThumbBrush" Color="{StaticResource ScrollThumbColor}" />
+    <SolidColorBrush x:Key="StatusBarBrush" Color="{StaticResource StatusBarColor}" />
+    <SolidColorBrush x:Key="NavActiveBrush" Color="{StaticResource NavActiveColor}" />
+    <SolidColorBrush x:Key="NavHoverBrush" Color="{StaticResource NavHoverColor}" />
+    <SolidColorBrush x:Key="RowAlternateBrush" Color="{StaticResource RowAlternateColor}" />
+    <SolidColorBrush x:Key="RowHoverBrush" Color="{StaticResource RowHoverColor}" />
+    <SolidColorBrush x:Key="RowSelectedBrush" Color="{StaticResource RowSelectedColor}" />
+    <SolidColorBrush x:Key="TabHoverBrush" Color="{StaticResource TabHoverColor}" />
+
+    <!-- === Risk Tier Badges (specs/02: T0 safest → T3 report-only) === -->
+    <SolidColorBrush x:Key="Tier0BadgeBrush" Color="#2A66BB6A" />
+    <SolidColorBrush x:Key="Tier0TextBrush" Color="#66BB6A" />
+    <SolidColorBrush x:Key="Tier1BadgeBrush" Color="#2A42A5F5" />
+    <SolidColorBrush x:Key="Tier1TextBrush" Color="#42A5F5" />
+    <SolidColorBrush x:Key="Tier2BadgeBrush" Color="#2AFFA726" />
+    <SolidColorBrush x:Key="Tier2TextBrush" Color="#FFA726" />
+    <SolidColorBrush x:Key="Tier3BadgeBrush" Color="#2A8888A0" />
+    <SolidColorBrush x:Key="Tier3TextBrush" Color="#8888A0" />
+
+</ResourceDictionary>

@@ -1,14 +1,20 @@
-using CCZen.App.ViewModels;
-using Microsoft.UI.Xaml.Controls;
+using System.Diagnostics;
+using System.Windows.Controls;
+using System.Windows.Navigation;
 
 namespace CCZen.App.Views;
 
-public sealed partial class SettingsPage : Page
+public partial class SettingsPage : UserControl
 {
     public SettingsPage()
     {
         InitializeComponent();
+        DataContext = App.Settings;
     }
 
-    public SettingsViewModel ViewModel => App.Settings;
+    private void OnNavigate(object sender, RequestNavigateEventArgs e)
+    {
+        Process.Start(new ProcessStartInfo(e.Uri.AbsoluteUri) { UseShellExecute = true });
+        e.Handled = true;
+    }
 }

@@ -1,14 +1,12 @@
-using CCZen.App.ViewModels;
-using Microsoft.UI.Xaml.Controls;
+using System.Windows.Controls;
 
 namespace CCZen.App.Views;
 
-public sealed partial class AdaptersPage : Page
+public partial class AdaptersPage : UserControl
 {
     public AdaptersPage()
     {
         InitializeComponent();
+        DataContext = App.Adapters;
     }
-
-    public AdaptersViewModel ViewModel => App.Adapters;
 }

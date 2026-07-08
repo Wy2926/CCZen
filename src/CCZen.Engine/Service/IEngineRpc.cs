@@ -32,8 +32,15 @@ public interface IEngineRpc
     /// <summary>Runs adapter + generic rule evaluation and returns merged recommendations (specs/02, 03).</summary>
     Task<IReadOnlyList<Recommendation>> RecommendAsync(CancellationToken cancellationToken);
 
-    /// <summary>Builds an immutable batch plan from the last recommendations (T0/T1 + confirmed T2 paths).</summary>
-    Task<BatchPlan> PlanCleanAsync(IReadOnlyList<string>? confirmedT2Paths, CancellationToken cancellationToken);
+    /// <summary>
+    /// Builds an immutable batch plan from the last recommendations
+    /// (T0/T1 + confirmed T2 paths). When <paramref name="selectedPaths"/> is
+    /// non-null, only those paths are eligible (per-item checkbox selection).
+    /// </summary>
+    Task<BatchPlan> PlanCleanAsync(IReadOnlyList<string>? confirmedT2Paths, IReadOnlyList<string>? selectedPaths, CancellationToken cancellationToken);
+
+    /// <summary>Builds a reversible quarantine plan for user-picked paths (large-file search).</summary>
+    Task<BatchPlan> PlanQuarantineAsync(IReadOnlyList<string> paths, CancellationToken cancellationToken);
 
     /// <summary>Executes a previously planned batch by id; returns per-item audit results (specs/04).</summary>
     Task<IReadOnlyList<ItemResult>> ExecuteBatchAsync(string batchId, CancellationToken cancellationToken);
