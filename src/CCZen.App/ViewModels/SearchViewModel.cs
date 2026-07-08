@@ -35,8 +35,12 @@ public sealed partial class SearchViewModel : OperationViewModel
     [ObservableProperty]
     private string _nameFilter = string.Empty;
 
+    /// <summary>Combo order: 0 全部 / 1 仅文件 / 2 仅目录.</summary>
+    private static readonly SearchKind[] KindByComboIndex =
+        [SearchKind.All, SearchKind.Files, SearchKind.Directories];
+
     [ObservableProperty]
-    private int _kindIndex = (int)SearchKind.All;
+    private int _kindIndex;
 
     [ObservableProperty]
     private string _indexStatus = "索引未构建 — 首次搜索时自动扫描系统卷";
@@ -91,7 +95,7 @@ public sealed partial class SearchViewModel : OperationViewModel
     private async Task RunSearchAsync()
     {
         var query = new SearchQuery(
-            (SearchKind)KindIndex,
+            KindByComboIndex[KindIndex],
             ParseMinSizeBytes(),
             string.IsNullOrWhiteSpace(NameFilter) ? null : NameFilter.Trim(),
             MaxResults);
