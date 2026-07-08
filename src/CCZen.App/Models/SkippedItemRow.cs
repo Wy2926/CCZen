@@ -18,6 +18,7 @@ public sealed class SkippedItemRow
             ItemOutcome.SkippedFingerprintMismatch => "文件在计划后发生变化，已跳过",
             ItemOutcome.SkippedMissing => "文件已不存在",
             ItemOutcome.SkippedReparsePoint => "重解析点/符号链接，已跳过",
+            _ when IsAccessDenied(result.Detail) => "系统拒绝访问（权限不足），请以管理员身份运行后重试",
             _ => $"执行失败{FormatDetail(result.Detail)}",
         };
     }
@@ -25,6 +26,10 @@ public sealed class SkippedItemRow
     public string Path { get; }
 
     public string Reason { get; }
+
+    private static bool IsAccessDenied(string? detail) =>
+        detail is not null
+        && (detail.Contains("denied", StringComparison.OrdinalIgnoreCase) || detail.Contains("拒绝"));
 
     private static string FormatDetail(string? detail) =>
         string.IsNullOrEmpty(detail) ? string.Empty : $"：{detail}";

@@ -21,7 +21,7 @@ public partial class MainWindow : Window
         App.Search.ConfirmInteraction = GlobalDialog.ShowConfirm;
         App.Cleaner.PropertyChanged += (_, e) => OnOperationChanged(e.PropertyName);
         App.Search.PropertyChanged += (_, e) => OnOperationChanged(e.PropertyName);
-        NavigateTo("dashboard");
+        NavigateTo("home");
         Loaded += async (_, _) => await ProbeEngineAsync();
     }
 
@@ -30,6 +30,7 @@ public partial class MainWindow : Window
     {
         RadioButton? button = tag switch
         {
+            "home" => NavHome,
             "dashboard" => NavDashboard,
             "cleaner" => NavCleaner,
             "largefiles" => NavLargeFiles,
@@ -67,13 +68,15 @@ public partial class MainWindow : Window
         {
             page = tag switch
             {
+                "home" => new HomePage(),
                 "cleaner" => new CleanerPage(),
                 "largefiles" => new LargeFilesPage(),
                 "duplicates" => new DuplicatesPage(),
                 "adapters" => new AdaptersPage(),
                 "quarantine" => new QuarantinePage(),
                 "settings" => new SettingsPage(),
-                _ => new DashboardPage(),
+                "dashboard" => new DashboardPage(),
+                _ => new HomePage(),
             };
             _pages[tag] = page;
         }

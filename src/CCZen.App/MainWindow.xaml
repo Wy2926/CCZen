@@ -106,10 +106,12 @@
             <Border Grid.Row="1" Grid.RowSpan="2" Grid.Column="0"
                     Background="{DynamicResource SidebarBackgroundBrush}">
                 <StackPanel Margin="0,8,0,0">
+                    <RadioButton x:Name="NavHome" Style="{StaticResource NavButton}"
+                                 Content="🏠  一键清理" IsChecked="True" Checked="OnNavChecked" Tag="home" />
                     <RadioButton x:Name="NavDashboard" Style="{StaticResource NavButton}"
-                                 Content="📊  总览" IsChecked="True" Checked="OnNavChecked" Tag="dashboard" />
+                                 Content="📊  总览" Checked="OnNavChecked" Tag="dashboard" />
                     <RadioButton x:Name="NavCleaner" Style="{StaticResource NavButton}"
-                                 Content="🧹  智能清理" Checked="OnNavChecked" Tag="cleaner" />
+                                 Content="🧰  深度清理" Checked="OnNavChecked" Tag="cleaner" />
                     <RadioButton x:Name="NavLargeFiles" Style="{StaticResource NavButton}"
                                  Content="🔍  大文件搜索" Checked="OnNavChecked" Tag="largefiles" />
                     <RadioButton x:Name="NavDuplicates" Style="{StaticResource NavButton}"
