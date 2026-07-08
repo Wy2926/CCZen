@@ -68,6 +68,28 @@ public class MftRecordParserTests
         Assert.False(MftRecordParser.TryGetFileSizes(record, out _, out _));
     }
 
+    [Fact]
+    public void StandardInformation_ReturnsLastModificationTime()
+    {
+        var expected = new DateTime(2024, 6, 15, 12, 30, 0, DateTimeKind.Utc);
+        long fileTime = expected.ToFileTimeUtc();
+        byte[] record = BuildRecord(nonResidentData: true, realSize: 100, allocatedSize: 4096, lastWriteFileTime: fileTime);
+
+        Assert.True(MftRecordParser.TryGetFileMetadata(record, out long logical, out long allocated, out DateTime lastWrite));
+        Assert.Equal(100, logical);
+        Assert.Equal(4096, allocated);
+        Assert.Equal(expected, lastWrite);
+    }
+
+    [Fact]
+    public void MissingStandardInformation_ReturnsMinLastWrite()
+    {
+        byte[] record = BuildRecord(nonResidentData: true, realSize: 50, allocatedSize: 4096);
+
+        Assert.True(MftRecordParser.TryGetFileMetadata(record, out _, out _, out DateTime lastWrite));
+        Assert.Equal(DateTime.MinValue, lastWrite);
+    }
+
     /// <summary>Builds a minimal synthetic FILE record with a single unnamed $DATA attribute.</summary>
     private static byte[] BuildRecord(
         bool nonResidentData,
@@ -77,7 +99,8 @@ public class MftRecordParserTests
         long totalAllocated = 0,
         bool inUse = true,
         ulong baseRecord = 0,
-        bool applyFixups = false)
+        bool applyFixups = false,
+        long lastWriteFileTime = 0)
     {
         byte[] record = new byte[1024];
         var span = record.AsSpan();
@@ -92,6 +115,19 @@ public class MftRecordParserTests
         BinaryPrimitives.WriteUInt64LittleEndian(span[0x20..], baseRecord);
 
         int attr = 0x38;
+        if (lastWriteFileTime != 0)
+        {
+            const int stdInfoLength = 0x60; // 0x18 header + 0x48 value
+            BinaryPrimitives.WriteUInt32LittleEndian(span[attr..], 0x10); // $STANDARD_INFORMATION
+            BinaryPrimitives.WriteUInt32LittleEndian(span[(attr + 4)..], (uint)stdInfoLength);
+            span[attr + 8] = 0; // resident
+            BinaryPrimitives.WriteUInt32LittleEndian(span[(attr + 0x10)..], 0x48);
+            BinaryPrimitives.WriteUInt16LittleEndian(span[(attr + 0x14)..], 0x18);
+            int value = attr + 0x18;
+            BinaryPrimitives.WriteInt64LittleEndian(span[(value + 0x08)..], lastWriteFileTime);
+            attr += stdInfoLength;
+        }
+
         BinaryPrimitives.WriteUInt32LittleEndian(span[attr..], 0x80); // $DATA
         int attrLength = nonResidentData ? 0x48 : 0x18;
         BinaryPrimitives.WriteUInt32LittleEndian(span[(attr + 4)..], (uint)attrLength);
