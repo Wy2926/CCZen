@@ -2,8 +2,8 @@
 title: CCZen 技术架构与工程规范
 description: .NET 技术选型、进程模型、性能与内存预算、兼容矩阵、测试策略与里程碑。
 ms.topic: architecture
-ms.date: 2026-07-07
-status: Draft v0.2
+ms.date: 2026-07-08
+status: Draft v0.3
 applies-to: Windows 10 版本 1809 及更高版本
 ---
 
@@ -86,6 +86,7 @@ CCZen.Helper (按需 UAC 提权：卷句柄读取、系统区批次执行)
 | M0 POC | USN 枚举 + `FSCTL_GET_NTFS_FILE_RECORD` 尺寸 + Top-N 控制台工具 | 100 万文件 < 10 s；与 WizTree 结果抽检一致 |
 | M1 扫描产品化 | USN 增量、索引缓存、回退路径、查询服务 | 01 全部验收项 |
 | M2 规则引擎 | 环境发现/证据/评分管线 + T0 系统类别 + 隔离区/撤销 | 02/04 golden 测试全绿 |
+| M2.5 索引-规则统一 | `IIndexQuery` + Rule/Adapter 索引化 + `EnsureIndex` 编排（方案 B） | RULE-FR-026/027 + SCAN-FR-026..029 验收；`IndexDrivenRuleParityTests` parity ≥ 99.9%；`Rules/` 零目录 walk；`EngineRpcSharedIndexTests` 共享索引；子树查询 smoke < 100 ms @ 100k 节点 |
 | M3 适配层 | 首发 Adapter 集 + 规则包签名分发 | 03 夹具矩阵全绿 |
 | M4 UI/发布 | treemap 大文件浏览器、一键清理、撤销中心、MSIX 打包 | E2E 全绿 + 内测误删 0 |
 
@@ -94,7 +95,7 @@ CCZen.Helper (按需 UAC 提权：卷句柄读取、系统区批次执行)
 - D7：托盘常驻默认开关
 - D8：重复文件全量哈希调度（仅手动 vs 空闲自动）
 - D9：企业静默模式（v2）
-- D10：索引缓存格式（自定义二进制 vs MemoryPack 等库）——M1 前 spike 决定
+- D10：索引缓存格式（自定义二进制 vs MemoryPack 等库）——**M2.5 前已决议：自定义二进制 v2，见 [ADR-001](../adr/ADR-001-index-cache-v2.md)**
 
 ## 另请参阅
 

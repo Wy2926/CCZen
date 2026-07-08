@@ -44,7 +44,7 @@ public sealed partial class SearchViewModel : OperationViewModel
     private int _kindIndex;
 
     [ObservableProperty]
-    private string _indexStatus = "索引未构建 — 首次搜索时自动扫描系统卷";
+    private string _indexStatus = IndexStatusFormatter.NotBuilt;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(DeleteSelectedCommand))]
@@ -88,10 +88,19 @@ public sealed partial class SearchViewModel : OperationViewModel
     private async Task EnsureIndexAsync()
     {
         string root = Path.GetPathRoot(Environment.SystemDirectory) ?? "C:\\";
+        ScanSummary? existing = await _engine.GetStatusAsync();
+        if (existing is not null &&
+            string.Equals(NormalizeVolumeRoot(existing.Root), NormalizeVolumeRoot(root), StringComparison.OrdinalIgnoreCase))
+        {
+            IndexStatus = $"{IndexStatusFormatter.From(existing)} — 正在增量刷新…";
+        }
+
         ScanSummary summary = await _engine.ScanAsync(root);
-        string mode = summary.Incremental ? "增量刷新" : "完整扫描";
-        IndexStatus = $"已索引 {root} — {summary.FileCount:N0} 个文件（{mode}，{summary.ElapsedSeconds:0.00} s）";
+        IndexStatus = IndexStatusFormatter.From(summary);
     }
+
+    private static string NormalizeVolumeRoot(string root) =>
+        root.EndsWith('\\') ? root : root + "\\";
 
     private async Task RunSearchAsync()
     {

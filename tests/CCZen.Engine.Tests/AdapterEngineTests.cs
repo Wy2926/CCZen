@@ -1,3 +1,4 @@
+using CCZen.Engine.Index;
 using CCZen.Engine.Rules;
 
 namespace CCZen.Engine.Tests;
@@ -29,31 +30,7 @@ public class AdapterEngineTests : IDisposable
         Volumes = [],
     };
 
-    private static AdapterPack BrowserPack() => AdapterPack.Load("""
-        {
-          "schemaVersion": 1,
-          "adapters": [
-            {
-              "id": "chrome",
-              "name": "Chrome",
-              "category": "browser",
-              "detect": {
-                "pathPatterns": ["${LOCALAPPDATA}\\Google\\Chrome\\User Data"],
-                "processNames": ["chrome"]
-              },
-              "items": [
-                {
-                  "id": "http-cache",
-                  "tier": "T1",
-                  "targets": ["${LOCALAPPDATA}\\Google\\Chrome\\User Data\\*\\Cache"],
-                  "explain": "per-profile cache",
-                  "requiresAppNotRunning": true
-                }
-              ]
-            }
-          ]
-        }
-        """);
+    private static AdapterPack BrowserPack() => TestAdapterPacks.ChromeBrowser();
 
     [Fact]
     public void SchemaValidation_RejectsUnknownFields()
@@ -62,6 +39,8 @@ public class AdapterEngineTests : IDisposable
             """{"schemaVersion":1,"adapters":[{"id":"x","name":"x","category":"browser","detect":{},"items":[],"evil":"code"}]}"""));
     }
 
+    private IndexQuery Index() => TestIndexFactory.FromDirectory(_root);
+
     [Fact]
     public void MiddleWildcard_EnumeratesPerProfileCaches()
     {
@@ -69,7 +48,7 @@ public class AdapterEngineTests : IDisposable
         Write(@"Google\Chrome\User Data\Profile 1\Cache\f_000001");
         Write(@"Google\Chrome\User Data\Profile 2\nothing.txt");
 
-        IReadOnlyList<Recommendation> hits = new AdapterEngine(Env(), BrowserPack()).Evaluate();
+        IReadOnlyList<Recommendation> hits = new AdapterEngine(Env(), BrowserPack(), Index()).Evaluate();
 
         Assert.Equal(2, hits.Count);
         Assert.All(hits, h => Assert.Equal("chrome/http-cache", h.RuleId));
@@ -81,7 +60,7 @@ public class AdapterEngineTests : IDisposable
     {
         Write(@"Google\Chrome\User Data\Default\Cache\f_000001");
 
-        IReadOnlyList<Recommendation> hits = new AdapterEngine(Env("chrome"), BrowserPack()).Evaluate();
+        IReadOnlyList<Recommendation> hits = new AdapterEngine(Env("chrome"), BrowserPack(), Index()).Evaluate();
 
         Assert.Equal("report-only", Assert.Single(hits).Action);
     }
@@ -90,7 +69,7 @@ public class AdapterEngineTests : IDisposable
     public void UndetectedAdapter_ProducesNothing()
     {
         // No Chrome install dir, no process.
-        IReadOnlyList<Recommendation> hits = new AdapterEngine(Env(), BrowserPack()).Evaluate();
+        IReadOnlyList<Recommendation> hits = new AdapterEngine(Env(), BrowserPack(), Index()).Evaluate();
 
         Assert.Empty(hits);
     }
@@ -139,7 +118,7 @@ public class AdapterEngineTests : IDisposable
             Volumes = [],
         };
 
-        IReadOnlyList<Recommendation> hits = new AdapterEngine(env, BaselineAdapterPack.Load()).Evaluate()
+        IReadOnlyList<Recommendation> hits = new AdapterEngine(env, BaselineAdapterPack.Load(), Index()).Evaluate()
             .Where(r => r.RuleId == "wechat/file-cache").ToList();
 
         Assert.Equal(2, hits.Count);
@@ -158,7 +137,7 @@ public class AdapterEngineTests : IDisposable
             Volumes = [],
         };
 
-        IReadOnlyList<Recommendation> hits = new AdapterEngine(env, BaselineAdapterPack.Load()).Evaluate()
+        IReadOnlyList<Recommendation> hits = new AdapterEngine(env, BaselineAdapterPack.Load(), Index()).Evaluate()
             .Where(r => r.RuleId == "wechat/chat-media").ToList();
 
         Assert.Equal("report-only", Assert.Single(hits).Action);

@@ -361,9 +361,10 @@ public sealed class UsnJournalScanner : IVolumeScanner
 
                 int length = (int)BinaryPrimitives.ReadUInt32LittleEndian(output.AsSpan(8));
                 Span<byte> record = output.AsSpan(12, Math.Min(length, recordLength));
-                if (MftRecordParser.TryGetFileSizes(record, out long logical, out long allocated))
+                if (MftRecordParser.TryGetFileMetadata(record, out long logical, out long allocated, out DateTime lastWrite))
                 {
                     builder.SetSizes(index, logical, allocated);
+                    builder.SetLastWriteUtc(index, lastWrite);
                 }
                 else
                 {
@@ -382,6 +383,7 @@ public sealed class UsnJournalScanner : IVolumeScanner
             if (info.Exists)
             {
                 builder.SetSizes(index, info.Length, info.Length);
+                builder.SetLastWriteUtc(index, info.LastWriteTimeUtc);
             }
         }
         catch (IOException)

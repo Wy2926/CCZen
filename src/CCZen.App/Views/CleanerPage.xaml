@@ -19,8 +19,10 @@
         <!-- Header -->
         <StackPanel Grid.Row="0" Margin="0,0,0,12">
             <TextBlock Text="智能清理" Style="{StaticResource PageTitle}" />
-            <TextBlock Text="规则引擎扫描并推荐可清理项：T0/T1 默认勾选，T2 需手动勾选确认，T3 仅提示。清理时可选择移入隔离区或直接删除（默认见设置）。"
-                       Style="{StaticResource SecondaryText}" Margin="0,4,0,0" TextWrapping="Wrap" />        </StackPanel>
+            <TextBlock Text="规则引擎扫描并推荐可清理项：T0/T1 默认勾选，T2 需手动勾选确认，T3 仅提示。所有清理默认移入隔离区，可整批撤销。"
+                       Style="{StaticResource SecondaryText}" Margin="0,4,0,0" TextWrapping="Wrap" />
+            <TextBlock Text="{Binding IndexStatus}" Style="{StaticResource SecondaryText}" Margin="0,4,0,0" />
+        </StackPanel>
 
         <!-- Toolbar -->
         <Border Grid.Row="1" Style="{StaticResource ToolbarBorder}" Margin="0,0,0,12">

@@ -48,7 +48,7 @@ public class RuleEngineTests : IDisposable
     }
 
     private IReadOnlyList<Recommendation> Evaluate() =>
-        new RuleEngine(_environment, BaselineRulePack.Load()).Evaluate();
+        new RuleEngine(_environment, BaselineRulePack.Load(), TestIndexFactory.FromDirectory(_root)).Evaluate();
 
     [Fact]
     public void BaselinePack_PassesSchemaValidation()

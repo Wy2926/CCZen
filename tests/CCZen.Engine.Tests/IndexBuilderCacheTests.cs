@@ -1,3 +1,5 @@
+using System.Buffers.Binary;
+using System.IO.Hashing;
 using CCZen.Engine.Index;
 
 namespace CCZen.Engine.Tests;
@@ -88,5 +90,63 @@ public class IndexBuilderCacheTests
 
         Assert.Equal(2, built.FileCount);
         Assert.Contains(built.TopFiles(10), e => e.Path == "C:\\new.bin");
+    }
+
+    [Fact]
+    public void SaveLoad_V2_RoundTripsLastWriteUtc()
+    {
+        var written = new DateTime(2023, 8, 20, 10, 0, 0, DateTimeKind.Utc);
+        IndexBuilder original = MakeBuilder();
+        original.SetLastWriteUtc(2, written);
+
+        using var stream = new MemoryStream();
+        original.Save(stream);
+        stream.Position = 0;
+
+        IndexBuilder? loaded = IndexBuilder.Load(stream);
+
+        Assert.NotNull(loaded);
+        FileSystemIndex index = loaded.Build("C:\\");
+        FileEntry file = index.TopFiles(10).First(e => e.Path.EndsWith("a.bin"));
+        Assert.Equal(written, index.GetLastWriteUtc(FindNode(index, file.Path)));
+    }
+
+    [Fact]
+    public void Load_RejectsVersion1Cache()
+    {
+        using var stream = new MemoryStream();
+        WriteVersion1Cache(MakeBuilder(), stream);
+        stream.Position = 0;
+
+        Assert.Null(IndexBuilder.Load(stream));
+    }
+
+    /// <summary>Writes a checksum-valid v1-format header; Load must reject unsupported versions.</summary>
+    private static void WriteVersion1Cache(IndexBuilder builder, Stream stream)
+    {
+        using var v2 = new MemoryStream();
+        builder.Save(v2);
+        byte[] payload = v2.ToArray()[8..];
+        payload[4] = 1;
+        payload[5] = 0;
+        payload[6] = 0;
+        payload[7] = 0;
+        Span<byte> checksum = stackalloc byte[8];
+        BinaryPrimitives.WriteUInt64LittleEndian(checksum, XxHash64.HashToUInt64(payload));
+        stream.Write(checksum);
+        stream.Write(payload);
+    }
+
+    private static int FindNode(FileSystemIndex index, string path)
+    {
+        for (int i = 0; i < index.Count; i++)
+        {
+            if (index.GetPath(i) == path)
+            {
+                return i;
+            }
+        }
+
+        throw new InvalidOperationException($"Node not found: {path}");
     }
 }

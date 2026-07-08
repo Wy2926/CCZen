@@ -16,8 +16,11 @@ public sealed class EngineRpcServer : IEngineRpc
 {
     private readonly string? _cacheDirectory;
     private readonly Func<EnvironmentModel> _discoverEnvironment;
+    private readonly Func<string> _getScanRoot;
+    private readonly Func<string, IVolumeScanner> _createScanner;
     private readonly ProtectedPaths _protection;
     private readonly QuarantineStore _quarantine;
+    private readonly ReaderWriterLockSlim _indexLock = new(LockRecursionPolicy.NoRecursion);
     private readonly Dictionary<string, BatchPlan> _plans = new(StringComparer.OrdinalIgnoreCase);
     private FileSystemIndex? _index;
     private ScanSummary? _summary;
@@ -26,74 +29,169 @@ public sealed class EngineRpcServer : IEngineRpc
     public EngineRpcServer(
         string? cacheDirectory = null,
         Func<EnvironmentModel>? discoverEnvironment = null,
-        ProtectedPaths? protection = null)
+        ProtectedPaths? protection = null,
+        Func<string>? getScanRoot = null,
+        Func<string, IVolumeScanner>? createScanner = null)
     {
         _cacheDirectory = cacheDirectory;
         _discoverEnvironment = discoverEnvironment ?? EnvironmentDiscovery.Discover;
+        _getScanRoot = getScanRoot ?? GetDefaultScanRoot;
+        _createScanner = createScanner ?? VolumeScannerFactory.Create;
         _protection = protection ?? new ProtectedPaths();
         _quarantine = new QuarantineStore(_protection);
     }
 
+    private static string GetDefaultScanRoot() =>
+        Path.GetPathRoot(Environment.SystemDirectory) ?? "C:\\";
+
     public Task<ScanSummary> ScanAsync(string root, bool useCache, CancellationToken cancellationToken) =>
+        Task.Run(() => ScanCore(root, useCache, cancellationToken), cancellationToken);
+
+    private ScanSummary ScanCore(string root, bool useCache, CancellationToken cancellationToken)
+    {
+        _indexLock.EnterWriteLock();
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var stopwatch = Stopwatch.StartNew();
+            FileSystemIndex index;
+            bool incremental = false;
+            IVolumeScanner scanner = _createScanner(root);
+            if (useCache && scanner is UsnJournalScanner usn && _cacheDirectory is not null)
+            {
+                Directory.CreateDirectory(_cacheDirectory);
+                string cachePath = Path.Combine(_cacheDirectory, $"{char.ToUpperInvariant(root[0])}.idx");
+                (index, incremental) = usn.ScanWithCache(root, cachePath, cancellationToken);
+            }
+            else
+            {
+                index = scanner.Scan(root, cancellationToken);
+            }
+
+            stopwatch.Stop();
+            var summary = new ScanSummary(
+                root,
+                index.Count,
+                index.FileCount,
+                index.TotalLogicalSize,
+                index.TotalAllocatedSize,
+                stopwatch.Elapsed.TotalSeconds,
+                incremental);
+            _index = index;
+            _summary = summary;
+            return summary;
+        }
+        finally
+        {
+            _indexLock.ExitWriteLock();
+        }
+    }
+
+    private void EnsureIndex(string root, bool useCache, CancellationToken cancellationToken) =>
+        ScanCore(root, useCache, cancellationToken);
+
+    public Task<IReadOnlyList<FileEntry>> GetTopFilesAsync(int count, CancellationToken cancellationToken) =>
         Task.Run(
             () =>
             {
-                var stopwatch = Stopwatch.StartNew();
-                FileSystemIndex index;
-                bool incremental = false;
-                IVolumeScanner scanner = VolumeScannerFactory.Create(root);
-                if (useCache && scanner is UsnJournalScanner usn && _cacheDirectory is not null)
+                _indexLock.EnterReadLock();
+                try
                 {
-                    Directory.CreateDirectory(_cacheDirectory);
-                    string cachePath = Path.Combine(_cacheDirectory, $"{char.ToUpperInvariant(root[0])}.idx");
-                    (index, incremental) = usn.ScanWithCache(root, cachePath, cancellationToken);
+                    return RequireIndexCore().TopFiles(count);
                 }
-                else
+                finally
                 {
-                    index = scanner.Scan(root, cancellationToken);
+                    _indexLock.ExitReadLock();
                 }
-
-                stopwatch.Stop();
-                var summary = new ScanSummary(
-                    root,
-                    index.Count,
-                    index.FileCount,
-                    index.TotalLogicalSize,
-                    index.TotalAllocatedSize,
-                    stopwatch.Elapsed.TotalSeconds,
-                    incremental);
-                _index = index;
-                _summary = summary;
-                return summary;
             },
             cancellationToken);
 
-    public Task<IReadOnlyList<FileEntry>> GetTopFilesAsync(int count, CancellationToken cancellationToken) =>
-        Task.FromResult(RequireIndex().TopFiles(count));
-
     public Task<IReadOnlyList<FileEntry>> GetTopDirectoriesAsync(int count, CancellationToken cancellationToken) =>
-        Task.FromResult(RequireIndex().TopDirectories(count));
+        Task.Run(
+            () =>
+            {
+                _indexLock.EnterReadLock();
+                try
+                {
+                    return RequireIndexCore().TopDirectories(count);
+                }
+                finally
+                {
+                    _indexLock.ExitReadLock();
+                }
+            },
+            cancellationToken);
 
     public Task<IReadOnlyList<FileEntry>> GetTopDistinctDirectoriesAsync(int count, CancellationToken cancellationToken) =>
-        Task.FromResult(RequireIndex().TopDistinctDirectories(count));
+        Task.Run(
+            () =>
+            {
+                _indexLock.EnterReadLock();
+                try
+                {
+                    return RequireIndexCore().TopDistinctDirectories(count);
+                }
+                finally
+                {
+                    _indexLock.ExitReadLock();
+                }
+            },
+            cancellationToken);
 
     public Task<IReadOnlyList<FileEntry>> SearchAsync(SearchQuery query, CancellationToken cancellationToken) =>
-        Task.Run(() => RequireIndex().Search(query), cancellationToken);
+        Task.Run(
+            () =>
+            {
+                _indexLock.EnterReadLock();
+                try
+                {
+                    return RequireIndexCore().Search(query);
+                }
+                finally
+                {
+                    _indexLock.ExitReadLock();
+                }
+            },
+            cancellationToken);
 
-    public Task<ScanSummary?> GetStatusAsync(CancellationToken cancellationToken) => Task.FromResult(_summary);
+    public Task<ScanSummary?> GetStatusAsync(CancellationToken cancellationToken) =>
+        Task.Run(
+            () =>
+            {
+                _indexLock.EnterReadLock();
+                try
+                {
+                    return _summary;
+                }
+                finally
+                {
+                    _indexLock.ExitReadLock();
+                }
+            },
+            cancellationToken);
 
     public Task<IReadOnlyList<Recommendation>> RecommendAsync(CancellationToken cancellationToken) =>
         Task.Run(
             () =>
             {
-                EnvironmentModel environment = _discoverEnvironment();
-                IReadOnlyList<Recommendation> adapterHits =
-                    new AdapterEngine(environment, BaselineAdapterPack.Load()).Evaluate();
-                IReadOnlyList<Recommendation> genericHits =
-                    new RuleEngine(environment, BaselineRulePack.Load()).Evaluate();
-                IReadOnlyList<Recommendation> merged = AdapterEngine.Merge(adapterHits, genericHits);
-                _recommendations = merged;
-                return merged;
+                EnsureIndex(_getScanRoot(), useCache: true, cancellationToken);
+                _indexLock.EnterReadLock();
+                try
+                {
+                    EnvironmentModel environment = _discoverEnvironment();
+                    var query = new IndexQuery(RequireIndexCore());
+                    IReadOnlyList<Recommendation> adapterHits =
+                        new AdapterEngine(environment, BaselineAdapterPack.Load(), query).Evaluate();
+                    IReadOnlyList<Recommendation> genericHits =
+                        new RuleEngine(environment, BaselineRulePack.Load(), query).Evaluate();
+                    IReadOnlyList<Recommendation> merged = AdapterEngine.Merge(adapterHits, genericHits);
+                    _recommendations = merged;
+                    return merged;
+                }
+                finally
+                {
+                    _indexLock.ExitReadLock();
+                }
             },
             cancellationToken);
 
@@ -129,7 +227,6 @@ public sealed class EngineRpcServer : IEngineRpc
             throw new InvalidOperationException($"Unknown batch '{batchId}'. Call PlanClean first.");
         }
 
-        // The confirmed plan snapshot is executed exactly once (SAFE-FR-010).
         _plans.Remove(batchId);
         return Task.Run<IReadOnlyList<ItemResult>>(
             () => _quarantine.Execute(
@@ -167,6 +264,6 @@ public sealed class EngineRpcServer : IEngineRpc
     public Task<bool> PurgeBatchAsync(string volumeRoot, string batchId, CancellationToken cancellationToken) =>
         Task.Run(() => _quarantine.PurgeBatch(volumeRoot, batchId), cancellationToken);
 
-    private FileSystemIndex RequireIndex() =>
+    private FileSystemIndex RequireIndexCore() =>
         _index ?? throw new InvalidOperationException("No index available. Call Scan first.");
 }

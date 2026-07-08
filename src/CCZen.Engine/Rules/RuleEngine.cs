@@ -1,19 +1,26 @@
+using CCZen.Engine.Index;
+
 namespace CCZen.Engine.Rules;
 
 /// <summary>
 /// Local, explainable inference pipeline (spec: 02): environment discovery →
 /// candidate generation → evidence → scoring → tiering. No LLM, no network;
 /// every recommendation carries the rule id and explanation that produced it.
+/// Candidate generation uses <see cref="IIndexQuery"/> (RULE-FR-026).
 /// </summary>
 public sealed class RuleEngine
 {
+    private const int CacheDirectoryMaxDepth = 8;
+
     private readonly EnvironmentModel _environment;
     private readonly RulePack _pack;
+    private readonly IIndexQuery _index;
 
-    public RuleEngine(EnvironmentModel environment, RulePack pack)
+    public RuleEngine(EnvironmentModel environment, RulePack pack, IIndexQuery index)
     {
         _environment = environment;
         _pack = pack;
+        _index = index;
     }
 
     public IReadOnlyList<Recommendation> Evaluate()
@@ -26,22 +33,22 @@ public sealed class RuleEngine
             foreach (string target in rule.Targets)
             {
                 (string? root, bool recursive) = ExpandTarget(target);
-                if (root is null || !Directory.Exists(root))
+                if (root is null || !_index.TryResolvePrefix(root, out int rootNode))
                 {
                     continue;
                 }
 
                 if (rule.Match?.DirNameLexicon is string lexiconName)
                 {
-                    EvaluateCacheDirectories(rule, root, lexiconName, recommendations, claimed);
+                    EvaluateCacheDirectories(rule, rootNode, lexiconName, recommendations, claimed);
                 }
                 else if (rule.Match?.FileExtensions is { Count: > 0 } extensions)
                 {
-                    EvaluateFilesByExtension(rule, root, recursive, extensions, recommendations, claimed);
+                    EvaluateFilesByExtension(rule, rootNode, recursive, extensions, recommendations, claimed);
                 }
                 else
                 {
-                    EvaluateWholeDirectory(rule, root, recommendations, claimed);
+                    EvaluateWholeDirectory(rule, root, rootNode, recommendations, claimed);
                 }
             }
         }
@@ -59,7 +66,7 @@ public sealed class RuleEngine
 
     /// <summary>RULE-FR-020: directories whose name hits the cache lexicon, outside user document areas.</summary>
     private void EvaluateCacheDirectories(
-        Rule rule, string root, string lexiconName, List<Recommendation> recommendations, HashSet<string> claimed)
+        Rule rule, int rootNode, string lexiconName, List<Recommendation> recommendations, HashSet<string> claimed)
     {
         if (!_pack.Lexicons.TryGetValue(lexiconName, out string[]? lexicon))
         {
@@ -67,55 +74,62 @@ public sealed class RuleEngine
         }
 
         var words = new HashSet<string>(lexicon, StringComparer.OrdinalIgnoreCase);
-        string[]? excludeExtensions = rule.Match?.ExcludeContentLexicon is string exclude
-            ? _pack.Lexicons.GetValueOrDefault(exclude)
+        HashSet<string>? excludeExtensions = rule.Match?.ExcludeContentLexicon is string exclude
+            ? _pack.Lexicons.GetValueOrDefault(exclude)?.ToHashSet(StringComparer.OrdinalIgnoreCase)
             : null;
 
-        foreach (string directory in SafeEnumerateDirectories(root))
+        foreach (string directory in _index.FindDirectoriesByName(rootNode, words, CacheDirectoryMaxDepth))
         {
-            if (!words.Contains(Path.GetFileName(directory)))
-            {
-                continue;
-            }
-
             if (!claimed.Add(directory))
             {
                 continue;
             }
 
-            (long size, DateTime lastWrite, bool hasUserAssets) = InspectTree(directory, excludeExtensions);
-            AddRecommendation(rule, directory, isDirectory: true, size, lastWrite, hasUserAssets, recommendations);
+            if (!_index.TryResolvePrefix(directory, out int dirNode))
+            {
+                continue;
+            }
+
+            SubtreeStats stats = _index.GetSubtreeStats(dirNode);
+            bool hasUserAssets = excludeExtensions is not null &&
+                                 _index.SubtreeContainsExtension(dirNode, excludeExtensions);
+            AddRecommendation(rule, directory, isDirectory: true, stats.LogicalSize, stats.MaxLastWriteUtc, hasUserAssets, recommendations);
         }
     }
 
     /// <summary>RULE-FR-021/022: files matching log/dump/installer extensions.</summary>
     private void EvaluateFilesByExtension(
-        Rule rule, string root, bool recursive, List<string> extensions, List<Recommendation> recommendations, HashSet<string> claimed)
+        Rule rule, int rootNode, bool recursive, List<string> extensions, List<Recommendation> recommendations, HashSet<string> claimed)
     {
-        var extensionSet = new HashSet<string>(extensions, StringComparer.OrdinalIgnoreCase);
-        var options = new EnumerationOptions { IgnoreInaccessible = true, RecurseSubdirectories = recursive };
-        foreach (string file in Directory.EnumerateFiles(root, "*", options))
+        var extensionSet = extensions.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (FileEntry file in _index.FindFilesByExtension(rootNode, extensionSet, recursive))
         {
-            if (!extensionSet.Contains(Path.GetExtension(file)) || !claimed.Add(file))
+            if (!claimed.Add(file.Path))
             {
                 continue;
             }
 
-            var info = new FileInfo(file);
-            AddRecommendation(rule, file, isDirectory: false, info.Length, info.LastWriteTimeUtc, hasUserAssets: false, recommendations);
+            if (!_index.TryResolvePrefix(file.Path, out int fileNode))
+            {
+                continue;
+            }
+
+            SubtreeStats stats = _index.GetSubtreeStats(fileNode);
+            AddRecommendation(rule, file.Path, isDirectory: false, stats.LogicalSize, stats.MaxLastWriteUtc, hasUserAssets: false, recommendations);
         }
     }
 
     /// <summary>RULE-FR-010: whole-directory categories such as ${TEMP}.</summary>
-    private void EvaluateWholeDirectory(Rule rule, string root, List<Recommendation> recommendations, HashSet<string> claimed)
+    private void EvaluateWholeDirectory(
+        Rule rule, string root, int rootNode, List<Recommendation> recommendations, HashSet<string> claimed)
     {
         if (!claimed.Add(root))
         {
             return;
         }
 
-        (long size, DateTime lastWrite, _) = InspectTree(root, excludeExtensions: null);
-        AddRecommendation(rule, root, isDirectory: true, size, lastWrite, hasUserAssets: false, recommendations);
+        SubtreeStats stats = _index.GetSubtreeStats(rootNode);
+        AddRecommendation(rule, root, isDirectory: true, stats.LogicalSize, stats.MaxLastWriteUtc, hasUserAssets: false, recommendations);
     }
 
     private void AddRecommendation(
@@ -144,39 +158,6 @@ public sealed class RuleEngine
         recommendations.Add(new Recommendation(
             path, isDirectory, size, rule.Id, tier, confidence, rule.Action, rule.Explain, signals));
     }
-
-    private static (long Size, DateTime LastWriteUtc, bool HasUserAssets) InspectTree(string root, string[]? excludeExtensions)
-    {
-        long size = 0;
-        DateTime lastWrite = DateTime.MinValue;
-        bool hasUserAssets = false;
-        var options = new EnumerationOptions { IgnoreInaccessible = true, RecurseSubdirectories = true };
-        foreach (string file in Directory.EnumerateFiles(root, "*", options))
-        {
-            var info = new FileInfo(file);
-            size += info.Length;
-            if (info.LastWriteTimeUtc > lastWrite)
-            {
-                lastWrite = info.LastWriteTimeUtc;
-            }
-
-            if (excludeExtensions is not null &&
-                excludeExtensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase))
-            {
-                hasUserAssets = true;
-            }
-        }
-
-        return (size, lastWrite, hasUserAssets);
-    }
-
-    private static IEnumerable<string> SafeEnumerateDirectories(string root) =>
-        Directory.EnumerateDirectories(root, "*", new EnumerationOptions
-        {
-            IgnoreInaccessible = true,
-            RecurseSubdirectories = true,
-            MaxRecursionDepth = 8,
-        });
 
     /// <summary>Staleness decay: untouched for 90+ days → 1.0, modified today → 0.</summary>
     private static double Staleness(DateTime lastWriteUtc)

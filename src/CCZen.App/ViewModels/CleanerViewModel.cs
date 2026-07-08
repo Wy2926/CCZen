@@ -21,6 +21,7 @@ public sealed partial class CleanerViewModel : OperationViewModel
 {
     private static readonly string[] ScanPhases =
     [
+        "正在加载/刷新卷索引（USN 缓存）…",
         "正在发现应用环境（注册表 / 路径 / 进程）…",
         "正在评估应用适配器规则…",
         "正在评估通用清理规则…",
@@ -35,6 +36,9 @@ public sealed partial class CleanerViewModel : OperationViewModel
 
     [ObservableProperty]
     private bool _hasScanned;
+
+    [ObservableProperty]
+    private string _indexStatus = IndexStatusFormatter.NotBuilt;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(CleanSelectedCommand))]
@@ -99,6 +103,10 @@ public sealed partial class CleanerViewModel : OperationViewModel
     private async Task LoadRecommendationsAsync()
     {
         IReadOnlyList<Recommendation> recommendations = await _engine.RecommendAsync();
+        ScanSummary? indexSummary = await _engine.GetStatusAsync();
+        IndexStatus = indexSummary is not null
+            ? IndexStatusFormatter.From(indexSummary)
+            : IndexStatusFormatter.NotBuilt;
 
         Groups.Clear();
         ReportOnlyGroups.Clear();

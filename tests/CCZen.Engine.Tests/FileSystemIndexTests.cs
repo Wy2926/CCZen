@@ -83,6 +83,42 @@ public class FileSystemIndexTests
     }
 
     [Fact]
+    public void SubtreeMaxLastWriteUtc_PropagatesToAncestors()
+    {
+        var old = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var recent = new DateTime(2024, 6, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        var builder = new IndexBuilder(rootFrn: 5);
+        builder.AddEntry(11, 5, "dir1", isDirectory: true);
+        builder.SetLastWriteUtc(builder.Count - 1, old);
+        builder.AddEntry(12, 11, "a.txt", isDirectory: false);
+        builder.SetSizes(builder.Count - 1, 100, 512);
+        builder.SetLastWriteUtc(builder.Count - 1, old);
+        builder.AddEntry(13, 11, "sub", isDirectory: true);
+        builder.AddEntry(14, 13, "b.txt", isDirectory: false);
+        builder.SetSizes(builder.Count - 1, 200, 512);
+        builder.SetLastWriteUtc(builder.Count - 1, recent);
+
+        FileSystemIndex index = builder.Build("C:\\");
+
+        Assert.Equal(recent, index.GetSubtreeMaxLastWriteUtc(FindNode(index, "C:\\dir1")));
+        Assert.Equal(recent, index.GetSubtreeMaxLastWriteUtc(FindNode(index, "C:\\dir1\\sub")));
+    }
+
+    private static int FindNode(FileSystemIndex index, string path)
+    {
+        for (int i = 0; i < index.Count; i++)
+        {
+            if (index.GetPath(i) == path)
+            {
+                return i;
+            }
+        }
+
+        throw new InvalidOperationException($"Node not found: {path}");
+    }
+
+    [Fact]
     public void FileWithDeletedParent_DoesNotBreakAggregation()
     {
         var builder = new IndexBuilder(rootFrn: 5);

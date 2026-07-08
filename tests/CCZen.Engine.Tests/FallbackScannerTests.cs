@@ -58,4 +58,14 @@ public class FallbackScannerTests : IDisposable
 
         Assert.Equal(12_288, big.AllocatedSize); // 10,000 -> 3 clusters
     }
+
+    [Fact]
+    public void Scan_NonexistentRoot_ReturnsEmptyIndex()
+    {
+        string missing = Path.Combine(_root, "does-not-exist");
+        FileSystemIndex index = new FallbackScanner().Scan(missing);
+
+        Assert.Equal(0, index.FileCount);
+        Assert.Equal(0, index.TotalLogicalSize);
+    }
 }

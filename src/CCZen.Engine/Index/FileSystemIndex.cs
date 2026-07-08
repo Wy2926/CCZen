@@ -10,9 +10,11 @@ public sealed class FileSystemIndex
     private readonly bool[] _isDirectory;
     private readonly long[] _logicalSize;
     private readonly long[] _allocatedSize;
+    private readonly long[] _lastWriteUtcTicks;
     private readonly long[] _subtreeLogical;
     private readonly long[] _subtreeAllocated;
     private readonly int[] _subtreeFileCount;
+    private readonly long[] _subtreeMaxLastWriteUtcTicks;
     private readonly string _rootLabel;
 
     internal FileSystemIndex(
@@ -21,7 +23,8 @@ public sealed class FileSystemIndex
         string[] name,
         bool[] isDirectory,
         long[] logicalSize,
-        long[] allocatedSize)
+        long[] allocatedSize,
+        long[] lastWriteUtcTicks)
     {
         _rootLabel = rootLabel;
         _parent = parent;
@@ -29,9 +32,11 @@ public sealed class FileSystemIndex
         _isDirectory = isDirectory;
         _logicalSize = logicalSize;
         _allocatedSize = allocatedSize;
+        _lastWriteUtcTicks = lastWriteUtcTicks;
         _subtreeLogical = new long[parent.Length];
         _subtreeAllocated = new long[parent.Length];
         _subtreeFileCount = new int[parent.Length];
+        _subtreeMaxLastWriteUtcTicks = new long[parent.Length];
         Aggregate();
     }
 
@@ -43,26 +48,77 @@ public sealed class FileSystemIndex
 
     public long TotalAllocatedSize { get; private set; }
 
+    /// <summary>Last modification time for a node (SCAN-FR-026).</summary>
+    public DateTime GetLastWriteUtc(int nodeIndex) =>
+        _lastWriteUtcTicks[nodeIndex] == 0
+            ? DateTime.MinValue
+            : new DateTime(_lastWriteUtcTicks[nodeIndex], DateTimeKind.Utc);
+
+    /// <summary>Maximum LastWrite among this node and its descendants (SCAN-FR-027).</summary>
+    public DateTime GetSubtreeMaxLastWriteUtc(int nodeIndex) =>
+        _subtreeMaxLastWriteUtcTicks[nodeIndex] == 0
+            ? DateTime.MinValue
+            : new DateTime(_subtreeMaxLastWriteUtcTicks[nodeIndex], DateTimeKind.Utc);
+
+    /// <summary>Subtree aggregates for rule-engine queries (SCAN-FR-028).</summary>
+    public SubtreeStats GetSubtreeStats(int nodeIndex)
+    {
+        if (!_isDirectory[nodeIndex])
+        {
+            return new SubtreeStats(
+                _allocatedSize[nodeIndex],
+                _logicalSize[nodeIndex],
+                FileCount: 1,
+                GetLastWriteUtc(nodeIndex));
+        }
+
+        return new SubtreeStats(
+            _subtreeAllocated[nodeIndex],
+            _subtreeLogical[nodeIndex],
+            _subtreeFileCount[nodeIndex],
+            GetSubtreeMaxLastWriteUtc(nodeIndex));
+    }
+
+    internal int GetParentIndex(int nodeIndex) => _parent[nodeIndex];
+
+    internal bool IsDirectoryNode(int nodeIndex) => _isDirectory[nodeIndex];
+
+    internal string GetNodeName(int nodeIndex) => _name[nodeIndex];
+
+    internal FileEntry ToFileEntry(int nodeIndex) => ToEntry(nodeIndex);
+
     private void Aggregate()
     {
         for (int i = 0; i < _parent.Length; i++)
         {
-            if (_isDirectory[i])
+            if (!_isDirectory[i])
+            {
+                FileCount++;
+                long logical = _logicalSize[i];
+                long allocated = _allocatedSize[i];
+                TotalLogicalSize += logical;
+                TotalAllocatedSize += allocated;
+
+                for (int p = _parent[i]; p >= 0; p = _parent[p])
+                {
+                    _subtreeLogical[p] += logical;
+                    _subtreeAllocated[p] += allocated;
+                    _subtreeFileCount[p]++;
+                }
+            }
+
+            long ticks = _lastWriteUtcTicks[i];
+            if (ticks <= 0)
             {
                 continue;
             }
 
-            FileCount++;
-            long logical = _logicalSize[i];
-            long allocated = _allocatedSize[i];
-            TotalLogicalSize += logical;
-            TotalAllocatedSize += allocated;
-
-            for (int p = _parent[i]; p >= 0; p = _parent[p])
+            for (int p = i; p >= 0; p = _parent[p])
             {
-                _subtreeLogical[p] += logical;
-                _subtreeAllocated[p] += allocated;
-                _subtreeFileCount[p]++;
+                if (ticks > _subtreeMaxLastWriteUtcTicks[p])
+                {
+                    _subtreeMaxLastWriteUtcTicks[p] = ticks;
+                }
             }
         }
     }

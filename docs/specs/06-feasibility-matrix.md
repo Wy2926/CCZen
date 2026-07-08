@@ -2,8 +2,8 @@
 title: CCZen 可行性追溯表
 description: 每条关键需求到公开 API、官方文档或成熟软件先例的强制映射。无法登记依据的需求不得进入规范。
 ms.topic: reference
-ms.date: 2026-07-07
-status: Draft v0.2
+ms.date: 2026-07-08
+status: Draft v0.3
 applies-to: 全部规范文档（00–05）
 ---
 
@@ -29,6 +29,8 @@ applies-to: 全部规范文档（00–05）
 | F-10 | SSD/HDD 判定（SCAN-FR-041） | API | [`IOCTL_STORAGE_QUERY_PROPERTY` + `DEVICE_SEEK_PENALTY_DESCRIPTOR`](https://learn.microsoft.com/windows/win32/api/winioctl/ns-winioctl-device_seek_penalty_descriptor) |
 | F-11 | 低优先级 I/O（SCAN-NFR-003） | API | [`SetThreadInformation(ThreadMemoryPriority/ThreadIoPriority)`](https://learn.microsoft.com/windows/win32/api/processthreadsapi/nf-processthreadsapi-setthreadinformation)、[后台任务优先级概述](https://learn.microsoft.com/windows/win32/procthread/scheduling-priorities) |
 | F-12 | 长路径（SCAN-FR-043） | OFFICIAL | [Maximum Path Length Limitation](https://learn.microsoft.com/windows/win32/fileio/maximum-file-path-limitation)（.NET Core 默认支持长路径） |
+| F-13 | MFT `$STANDARD_INFORMATION` 修改时间（SCAN-FR-026） | API | [Master File Table](https://learn.microsoft.com/windows/win32/fileio/master-file-table) — `$STANDARD_INFORMATION` 属性 |
+| F-14 | 索引内存 glob/前缀/子树查询（SCAN-FR-022/028） | PRECEDENT + BCL | Everything 类索引器 in-memory filter 先例；BCL `MemoryExtensions` / struct-of-arrays 遍历 |
 
 ## R — 规则引擎（对应 RULE-FR）
 
@@ -48,6 +50,7 @@ applies-to: 全部规范文档（00–05）
 | R-12 | 占用探测 | API | [Restart Manager `RmGetList`](https://learn.microsoft.com/windows/win32/api/restartmgr/nf-restartmgr-rmgetlist) |
 | R-13 | 哈希查重（RULE-FR-024） | BCL | [`System.IO.Hashing.XxHash64`](https://learn.microsoft.com/dotnet/api/system.io.hashing.xxhash64)、`SHA256` |
 | R-14 | T0 类别与系统行为对齐 | PRECEDENT | [Storage Sense 清理范围](https://support.microsoft.com/windows/manage-drive-space-with-storage-sense-654f6ada-7bfc-45e5-966b-e24aded96ad5)、cleanmgr 内置处理程序 |
+| R-15 | 索引驱动候选生成（RULE-FR-026/027） | 内部架构 | 依赖 F-01/F-13/F-14；[方案 B 实施计划](../plans/index-merge-scheme-b.md) |
 
 ## A — 应用适配（对应 ADPT-FR；每个 Adapter 上线前逐项补登）
 
