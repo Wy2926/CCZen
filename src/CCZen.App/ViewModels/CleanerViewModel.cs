@@ -9,21 +9,28 @@ using CommunityToolkit.Mvvm.Input;
 namespace CCZen.App.ViewModels;
 
 /// <summary>
-/// View model for the main window: recommend → one-click clean → undo
-/// (specs/05 M4). Talks to the engine only via <see cref="IEngineClient"/>.
+/// Smart-clean pipeline: recommend → one-click clean → undo (specs/05 M4).
+/// Talks to the engine only via <see cref="IEngineClient"/>; executed batches
+/// are kept as history rows for the quarantine/undo center.
 /// </summary>
-public sealed partial class MainViewModel : ObservableObject
+public sealed partial class CleanerViewModel : OperationViewModel
 {
-    private readonly IEngineClient _engine;
+    private static readonly string[] ScanPhases =
+    [
+        "正在发现应用环境（注册表 / 路径 / 进程）…",
+        "正在评估应用适配器规则…",
+        "正在评估通用清理规则…",
+        "正在评分并分级（T0–T3）…",
+        "正在汇总推荐结果…",
+    ];
 
-    [ObservableProperty]
-    private bool _isBusy;
+    private readonly IEngineClient _engine;
 
     [ObservableProperty]
     private string _summary = string.Empty;
 
     [ObservableProperty]
-    private string _status = string.Empty;
+    private bool _hasScanned;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(CleanCommand))]
@@ -31,27 +38,30 @@ public sealed partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(UndoCommand))]
-    private string? _lastBatchId;
+    private QuarantineBatchRow? _lastBatch;
 
-    private string? _lastVolumeRoot;
-
-    public MainViewModel(IEngineClient engine)
+    public CleanerViewModel(IEngineClient engine)
     {
         _engine = engine;
     }
 
     public ObservableCollection<RecommendationGroup> Groups { get; } = [];
 
+    public ObservableCollection<QuarantineBatchRow> BatchHistory { get; } = [];
+
     [RelayCommand]
-    private Task RecommendAsync() => RunGuardedAsync(LoadRecommendationsAsync);
+    private Task RecommendAsync() => RunGuardedAsync(LoadRecommendationsAsync, ScanPhases);
 
     [RelayCommand(CanExecute = nameof(CanClean))]
     private Task CleanAsync() => RunGuardedAsync(ExecuteCleanAsync);
 
     [RelayCommand(CanExecute = nameof(CanUndo))]
-    private Task UndoAsync() => RunGuardedAsync(RestoreLastBatchAsync);
+    private Task UndoAsync() => RunGuardedAsync(() => RestoreAsync(LastBatch!));
 
-    private bool CanUndo() => LastBatchId is not null;
+    [RelayCommand]
+    private Task RestoreBatchAsync(QuarantineBatchRow batch) => RunGuardedAsync(() => RestoreAsync(batch));
+
+    private bool CanUndo() => LastBatch is not null;
 
     private async Task LoadRecommendationsAsync()
     {
@@ -71,6 +81,8 @@ public sealed partial class MainViewModel : ObservableObject
         long cleanableBytes = recommendations.Where(r => r.Action != "report-only").Sum(r => r.SizeBytes);
         Summary = $"共 {recommendations.Count} 项推荐（{Groups.Count} 组），可自动清理约 {SizeFormatter.Format(cleanableBytes)}";
         CanClean = recommendations.Any(r => r.Action != "report-only");
+        HasScanned = true;
+        Status = string.Empty;
     }
 
     private async Task ExecuteCleanAsync()
@@ -85,38 +97,24 @@ public sealed partial class MainViewModel : ObservableObject
         IReadOnlyList<ItemResult> results = await _engine.ExecuteBatchAsync(plan.BatchId);
         int quarantined = results.Count(r => r.Outcome == ItemOutcome.Quarantined);
 
-        _lastVolumeRoot = Path.GetPathRoot(plan.Items[0].Path);
-        LastBatchId = plan.BatchId;
+        var batch = new QuarantineBatchRow(
+            plan.BatchId,
+            Path.GetPathRoot(plan.Items[0].Path) ?? "C:\\",
+            $"{quarantined}/{results.Count} 项已移入隔离区",
+            DateTime.Now.ToString("yyyy-MM-dd HH:mm"));
+        BatchHistory.Insert(0, batch);
+        LastBatch = batch;
         Status = $"批次 {plan.BatchId}：{quarantined}/{results.Count} 项已移入隔离区，可撤销。";
     }
 
-    private async Task RestoreLastBatchAsync()
+    private async Task RestoreAsync(QuarantineBatchRow batch)
     {
-        if (LastBatchId is not { } batchId || _lastVolumeRoot is not { } volumeRoot)
+        IReadOnlyList<ItemResult> results = await _engine.RestoreBatchAsync(batch.VolumeRoot, batch.BatchId);
+        Status = $"批次 {batch.BatchId}：{results.Count} 项已还原。";
+        BatchHistory.Remove(batch);
+        if (LastBatch == batch)
         {
-            return;
-        }
-
-        IReadOnlyList<ItemResult> results = await _engine.RestoreBatchAsync(volumeRoot, batchId);
-        Status = $"批次 {batchId}：{results.Count} 项已还原。";
-        LastBatchId = null;
-        _lastVolumeRoot = null;
-    }
-
-    private async Task RunGuardedAsync(Func<Task> action)
-    {
-        IsBusy = true;
-        try
-        {
-            await action();
-        }
-        catch (Exception ex)
-        {
-            Status = $"出错：{ex.Message}";
-        }
-        finally
-        {
-            IsBusy = false;
+            LastBatch = null;
         }
     }
 }

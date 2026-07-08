@@ -11,14 +11,20 @@ namespace CCZen.App.ViewModels;
 /// View model for conditional large file/directory search (SCAN-FR-025):
 /// scans on first use, then queries the in-memory index instantly.
 /// </summary>
-public sealed partial class SearchViewModel : ObservableObject
+public sealed partial class SearchViewModel : OperationViewModel
 {
     private const int MaxResults = 100;
 
-    private readonly IEngineClient _engine;
+    private static readonly string[] ScanPhases =
+    [
+        "正在打开卷并读取 MFT / USN 日志…",
+        "正在枚举文件记录…",
+        "正在聚合目录占用空间…",
+        "正在构建内存索引…",
+        "正在执行条件搜索…",
+    ];
 
-    [ObservableProperty]
-    private bool _isBusy;
+    private readonly IEngineClient _engine;
 
     [ObservableProperty]
     private string _minSizeMb = "100";
@@ -30,7 +36,7 @@ public sealed partial class SearchViewModel : ObservableObject
     private int _kindIndex = (int)SearchKind.All;
 
     [ObservableProperty]
-    private string _status = string.Empty;
+    private string _indexStatus = "索引未构建 — 首次搜索时自动扫描系统卷";
 
     public SearchViewModel(IEngineClient engine)
     {
@@ -40,23 +46,13 @@ public sealed partial class SearchViewModel : ObservableObject
     public ObservableCollection<SearchResultRow> Results { get; } = [];
 
     [RelayCommand]
-    private async Task SearchAsync()
-    {
-        IsBusy = true;
-        try
+    private Task SearchAsync() => RunGuardedAsync(
+        async () =>
         {
             await EnsureIndexAsync();
             await RunSearchAsync();
-        }
-        catch (Exception ex)
-        {
-            Status = $"出错：{ex.Message}";
-        }
-        finally
-        {
-            IsBusy = false;
-        }
-    }
+        },
+        ScanPhases);
 
     private async Task EnsureIndexAsync()
     {
@@ -66,9 +62,8 @@ public sealed partial class SearchViewModel : ObservableObject
         }
 
         string root = Path.GetPathRoot(Environment.SystemDirectory) ?? "C:\\";
-        Status = $"首次搜索：正在扫描 {root} …";
         var summary = await _engine.ScanAsync(root);
-        Status = $"已索引 {summary.FileCount:N0} 个文件（{summary.ElapsedSeconds:0.00} s）。";
+        IndexStatus = $"已索引 {root} — {summary.FileCount:N0} 个文件（{summary.ElapsedSeconds:0.00} s）";
     }
 
     private async Task RunSearchAsync()
