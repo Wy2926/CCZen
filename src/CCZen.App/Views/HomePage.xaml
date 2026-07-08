@@ -1,0 +1,187 @@
+<UserControl x:Class="CCZen.App.Views.HomePage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+
+        <!-- Visible only before the first scan (and while not busy) -->
+        <Style x:Key="IdleOnly" TargetType="FrameworkElement">
+            <Setter Property="Visibility" Value="Visible" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding HasScanned}" Value="True">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsBusy}" Value="True">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Visible only after a scan produced results -->
+        <Style x:Key="ScannedOnly" TargetType="FrameworkElement">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding HasScanned}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="BigAccentButton" TargetType="Button" BasedOn="{StaticResource AccentButton}">
+            <Setter Property="FontSize" Value="17" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Padding" Value="44,14" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+    </UserControl.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="24,20" MaxWidth="820" HorizontalAlignment="Center">
+
+            <!-- ===== Idle hero: one big button, zero jargon ===== -->
+            <StackPanel Style="{StaticResource IdleOnly}" Margin="0,60,0,0" HorizontalAlignment="Center">
+                <TextBlock Text="🧹" FontSize="64" HorizontalAlignment="Center" />
+                <TextBlock Text="给电脑做个体检" FontSize="26" FontWeight="SemiBold"
+                           Foreground="{DynamicResource PrimaryTextBrush}"
+                           HorizontalAlignment="Center" Margin="0,16,0,6" />
+                <TextBlock Text="一键找出浏览器缓存、系统临时文件等垃圾，体检只做检查，不会删除任何文件。"
+                           Style="{StaticResource SecondaryText}" FontSize="13"
+                           HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center" />
+                <Button Content="立即体检" Style="{StaticResource BigAccentButton}"
+                        Command="{Binding RecommendCommand}"
+                        HorizontalAlignment="Center" Margin="0,28,0,0" />
+                <TextBlock Text="清理的文件会先放进「隔离区」，随时可以找回，放心使用。"
+                           Style="{StaticResource SecondaryText}" FontSize="12"
+                           HorizontalAlignment="Center" Margin="0,16,0,0" />
+            </StackPanel>
+
+            <!-- ===== Busy: friendly progress ===== -->
+            <StackPanel Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}"
+                        Margin="0,80,0,0" HorizontalAlignment="Center" Width="520">
+                <TextBlock Text="⏳ 正在处理，请稍候…" FontSize="18" FontWeight="SemiBold"
+                           Foreground="{DynamicResource PrimaryTextBrush}" HorizontalAlignment="Center" />
+                <ProgressBar Value="{Binding ProgressValue}" Maximum="100" Height="8" Margin="0,20,0,0" />
+                <TextBlock Text="{Binding ProgressPhase}" Style="{StaticResource SecondaryText}"
+                           Margin="0,10,0,0" HorizontalAlignment="Center" TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+
+            <!-- ===== Result: summary + category cards + one-click clean ===== -->
+            <StackPanel Style="{StaticResource ScannedOnly}">
+                <StackPanel>
+                    <StackPanel.Style>
+                        <Style TargetType="StackPanel">
+                            <Setter Property="Visibility" Value="Visible" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsBusy}" Value="True">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </StackPanel.Style>
+
+                    <!-- Result hero -->
+                    <Border Style="{StaticResource CardBorder}" Padding="24,20" Margin="0,8,0,16">
+                        <StackPanel HorizontalAlignment="Center">
+                            <TextBlock Text="体检完成" FontSize="15" Foreground="{DynamicResource SecondaryTextBrush}"
+                                       HorizontalAlignment="Center" />
+                            <TextBlock Text="{Binding Summary}" FontSize="18" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource PrimaryTextBrush}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,4" TextWrapping="Wrap" TextAlignment="Center" />
+                            <TextBlock Text="{Binding SelectionSummary}" Style="{StaticResource SecondaryText}"
+                                       HorizontalAlignment="Center" Margin="0,0,0,14" />
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                <Button Content="🧹 一键清理" Style="{StaticResource BigAccentButton}"
+                                        Command="{Binding CleanSelectedCommand}" Margin="0,0,12,0" />
+                                <Button Content="重新体检" Command="{Binding RecommendCommand}"
+                                        Padding="20,12" FontSize="14" VerticalAlignment="Center" />
+                            </StackPanel>
+                            <TextBlock Text="{Binding Status}" Style="{StaticResource SecondaryText}" Margin="0,12,0,0"
+                                       HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center"
+                                       Visibility="{Binding HasStatus, Converter={StaticResource BoolToVis}}" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Category cards: plain-language names, group-level checkbox only -->
+                    <TextBlock Text="发现的垃圾类别（已自动帮你勾选安全项）" Style="{StaticResource PrimaryText}"
+                               FontSize="13" FontWeight="SemiBold" Margin="0,0,0,8" />
+                    <ItemsControl ItemsSource="{Binding Groups}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Style="{StaticResource CardBorder}" Margin="0,0,0,8" Padding="16,12">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <CheckBox Grid.Column="0" IsThreeState="True" VerticalAlignment="Center"
+                                                  IsChecked="{Binding GroupChecked, Mode=TwoWay}"
+                                                  IsEnabled="{Binding HasSelectableItems}" Margin="0,0,14,0" />
+                                        <TextBlock Grid.Column="1" Text="{Binding Icon}" FontSize="24"
+                                                   VerticalAlignment="Center" Margin="0,0,14,0" />
+                                        <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding FriendlyTitle}" Style="{StaticResource PrimaryText}" FontSize="14" />
+                                            <TextBlock Text="{Binding Title}" Style="{StaticResource SecondaryText}" FontSize="11"
+                                                       Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="3" Text="{Binding Detail}" Style="{StaticResource DataText}"
+                                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                                   VerticalAlignment="Center" Margin="12,0,0,0" />
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock Text="想查看每个文件的明细？请到左侧「深度清理」页面。"
+                               Style="{StaticResource SecondaryText}" FontSize="11" Margin="0,4,0,0" />
+
+                    <!-- Items the last clean could not process, in plain language -->
+                    <StackPanel Margin="0,16,0,0">
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Setter Property="Visibility" Value="Visible" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding SkippedItems.Count}" Value="0">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+                        <TextBlock Text="⚠ 有些文件暂时清理不了" Style="{StaticResource PrimaryText}"
+                                   FontSize="13" FontWeight="SemiBold" Foreground="{DynamicResource WarningBrush}" />
+                        <TextBlock Text="不用担心，这不影响其他文件的清理。常见原因是文件正在使用或需要管理员权限。"
+                                   Style="{StaticResource SecondaryText}" FontSize="11" Margin="0,3,0,8" TextWrapping="Wrap" />
+                        <ItemsControl ItemsSource="{Binding SkippedItems}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Style="{StaticResource CardBorder}" Margin="0,0,0,6" Padding="12,8">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Path}" Style="{StaticResource DataText}"
+                                                       TextTrimming="CharacterEllipsis" ToolTip="{Binding Path}" />
+                                            <TextBlock Text="{Binding Reason}" Style="{StaticResource SecondaryText}" FontSize="11"
+                                                       Margin="0,2,0,0" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+
+                    <!-- Undo reassurance -->
+                    <Border Style="{StaticResource CardBorder}" Padding="16,12" Margin="0,16,0,24">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Content="↩ 恢复刚才清理的文件"
+                                    Command="{Binding UndoCommand}" Padding="14,8" VerticalAlignment="Center" />
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="🛟 后悔了？" Style="{StaticResource PrimaryText}" FontSize="13" />
+                                <TextBlock Text="清理的文件默认放在「隔离区」，点右侧按钮即可整批找回。"
+                                           Style="{StaticResource SecondaryText}" FontSize="11" Margin="0,2,0,0" />
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+                </StackPanel>
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>
