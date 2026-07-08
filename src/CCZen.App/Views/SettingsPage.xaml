@@ -1,0 +1,72 @@
+﻿<Page
+    x:Class="CCZen.App.Views.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:CCZen.App.Controls">
+
+    <ScrollViewer>
+        <StackPanel Padding="{StaticResource PagePadding}" MaxWidth="1100" HorizontalAlignment="Stretch" Spacing="4">
+            <TextBlock Text="è®¾ç½®" Style="{StaticResource PageTitleStyle}" />
+            <TextBlock
+                Text="å¤–è§‚ã€æ‰«æä¸Žæ¸…ç†è¡Œä¸ºè®¾ç½®ã€‚éƒ¨åˆ†é€‰é¡¹ä¸ºå ä½ï¼Œå°†éšå¯¹åº”å¼•æ“Žèƒ½åŠ›è½åœ°ç”Ÿæ•ˆã€‚"
+                Style="{StaticResource PageDescriptionStyle}" />
+
+            <TextBlock Text="å¤–è§‚" Style="{StaticResource SectionHeaderStyle}" />
+            <controls:SettingCard Glyph="&#xE790;" Header="åº”ç”¨ä¸»é¢˜" Description="é€‰æ‹©æµ…è‰²ã€æ·±è‰²æˆ–è·Ÿéšç³»ç»Ÿ">
+                <controls:SettingCard.ActionContent>
+                    <ComboBox SelectedIndex="{x:Bind ViewModel.ThemeIndex, Mode=TwoWay}" MinWidth="140">
+                        <ComboBoxItem Content="è·Ÿéšç³»ç»Ÿ" />
+                        <ComboBoxItem Content="æµ…è‰²" />
+                        <ComboBoxItem Content="æ·±è‰²" />
+                    </ComboBox>
+                </controls:SettingCard.ActionContent>
+            </controls:SettingCard>
+
+            <TextBlock Text="æ‰«æ" Style="{StaticResource SectionHeaderStyle}" />
+            <controls:SettingCard Glyph="&#xE9F5;" Header="ä½Žä¼˜å…ˆçº§ IO" Description="æ‰«æä½¿ç”¨ä½Žä¼˜å…ˆçº§çº¿ç¨‹ä¸Ž IOï¼Œå‰å°ä½¿ç”¨æ— æ„Ÿï¼ˆSCAN-NFR-003ï¼‰">
+                <controls:SettingCard.ActionContent>
+                    <ToggleSwitch IsOn="{x:Bind ViewModel.LowPriorityIo, Mode=TwoWay}" OnContent="" OffContent="" MinWidth="0" />
+                </controls:SettingCard.ActionContent>
+            </controls:SettingCard>
+            <controls:SettingCard Glyph="&#xE8FC;" Header="å¸¸é©»æ‰˜ç›˜ï¼ˆå®žéªŒï¼‰" Description="å¸¸é©»è¿›ç¨‹æŒç»­æ¶ˆè´¹ USN æ—¥å¿—ï¼Œä¿æŒç´¢å¼•å®žæ—¶ï¼ˆspecs/05 å¼€æ”¾é—®é¢˜ D7ï¼Œæš‚æœªç”Ÿæ•ˆï¼‰">
+                <controls:SettingCard.ActionContent>
+                    <ToggleSwitch IsOn="{x:Bind ViewModel.TrayResident, Mode=TwoWay}" OnContent="" OffContent="" MinWidth="0" />
+                </controls:SettingCard.ActionContent>
+            </controls:SettingCard>
+
+            <TextBlock Text="æ¸…ç†" Style="{StaticResource SectionHeaderStyle}" />
+            <controls:SettingCard Glyph="&#xE8FB;" Header="æ¸…ç†å‰ç¡®è®¤" Description="æ‰§è¡Œä¸€é”®æ¸…ç†å‰æ˜¾ç¤ºæ‰¹æ¬¡å†…å®¹ç¡®è®¤å¯¹è¯æ¡†">
+                <controls:SettingCard.ActionContent>
+                    <ToggleSwitch IsOn="{x:Bind ViewModel.ConfirmBeforeClean, Mode=TwoWay}" OnContent="" OffContent="" MinWidth="0" />
+                </controls:SettingCard.ActionContent>
+            </controls:SettingCard>
+            <controls:SettingCard Glyph="&#xF12B;" Header="éš”ç¦»åŒºä¿ç•™æ—¶é•¿" Description="è¶…è¿‡ä¿ç•™æœŸçš„æ‰¹æ¬¡å¯è¢«è‡ªåŠ¨æ¸…ç©ºï¼ˆspecs/04ï¼Œç­–ç•¥æš‚æœªç”Ÿæ•ˆï¼‰">
+                <controls:SettingCard.ActionContent>
+                    <ComboBox SelectedIndex="{x:Bind ViewModel.RetentionIndex, Mode=TwoWay}" MinWidth="140">
+                        <ComboBoxItem Content="7 å¤©" />
+                        <ComboBoxItem Content="14 å¤©" />
+                        <ComboBoxItem Content="30 å¤©" />
+                    </ComboBox>
+                </controls:SettingCard.ActionContent>
+            </controls:SettingCard>
+
+            <TextBlock Text="éšç§" Style="{StaticResource SectionHeaderStyle}" />
+            <controls:SettingCard Glyph="&#xE72E;" Header="é¥æµ‹" Description="CCZen é»˜è®¤ä¸æ”¶é›†ä»»ä½•é¥æµ‹æ•°æ®ï¼Œæ¸…ç†æ™ºèƒ½å…¨éƒ¨åœ¨æœ¬åœ°å®Œæˆ">
+                <controls:SettingCard.ActionContent>
+                    <ToggleSwitch IsOn="False" IsEnabled="False" OnContent="" OffContent="" MinWidth="0" />
+                </controls:SettingCard.ActionContent>
+            </controls:SettingCard>
+
+            <TextBlock Text="å…³äºŽ" Style="{StaticResource SectionHeaderStyle}" />
+            <controls:SettingCard Glyph="&#xEA99;" Header="CCZen" Description="{x:Bind ViewModel.Version}">
+                <controls:SettingCard.ActionContent>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <HyperlinkButton Content="GitHub" NavigateUri="https://github.com/Wy2926/CCZen" />
+                        <HyperlinkButton Content="è§„æ ¼æ–‡æ¡£" NavigateUri="https://github.com/Wy2926/CCZen/tree/main/docs/specs" />
+                    </StackPanel>
+                </controls:SettingCard.ActionContent>
+            </controls:SettingCard>
+        </StackPanel>
+    </ScrollViewer>
+</Page>
+
