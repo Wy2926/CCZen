@@ -4,20 +4,27 @@ namespace CCZen.Engine.Scanning.Mft;
 
 /// <summary>
 /// Parses raw NTFS FILE records (as returned by FSCTL_GET_NTFS_FILE_RECORD) to
-/// extract the logical and allocated size of the unnamed $DATA attribute.
+/// extract the logical and allocated size of the unnamed $DATA attribute and
+/// LastWriteTime from $STANDARD_INFORMATION (SCAN-FR-026).
 /// Layout reference: Microsoft Learn "Master File Table" and NTFS_FILE_RECORD_OUTPUT_BUFFER.
 /// </summary>
 public static class MftRecordParser
 {
     private const uint FileRecordMagic = 0x454C4946; // "FILE"
+    private const uint AttributeStandardInformation = 0x10;
     private const uint AttributeData = 0x80;
     private const uint AttributeEnd = 0xFFFFFFFF;
     private const int SectorSize = 512;
 
-    public static bool TryGetFileSizes(Span<byte> record, out long logicalSize, out long allocatedSize)
+    public static bool TryGetFileSizes(Span<byte> record, out long logicalSize, out long allocatedSize) =>
+        TryGetFileMetadata(record, out logicalSize, out allocatedSize, out _);
+
+    public static bool TryGetFileMetadata(
+        Span<byte> record, out long logicalSize, out long allocatedSize, out DateTime lastWriteUtc)
     {
         logicalSize = 0;
         allocatedSize = 0;
+        lastWriteUtc = DateTime.MinValue;
 
         if (record.Length < 0x30 || BinaryPrimitives.ReadUInt32LittleEndian(record) != FileRecordMagic)
         {
@@ -46,6 +53,7 @@ public static class MftRecordParser
         int bytesInUse = (int)BinaryPrimitives.ReadUInt32LittleEndian(record[0x18..]);
         int limit = Math.Min(bytesInUse, record.Length);
 
+        bool hasData = false;
         while (offset + 8 <= limit)
         {
             uint type = BinaryPrimitives.ReadUInt32LittleEndian(record[offset..]);
@@ -60,34 +68,55 @@ public static class MftRecordParser
                 break;
             }
 
-            if (type == AttributeData && record[offset + 9] == 0)
+            if (type == AttributeStandardInformation && record[offset + 8] == 0)
             {
-                // Unnamed $DATA attribute.
-                bool nonResident = record[offset + 8] != 0;
-                if (!nonResident)
+                int valueOffset = BinaryPrimitives.ReadUInt16LittleEndian(record[(offset + 0x14)..]);
+                int valueLength = (int)BinaryPrimitives.ReadUInt32LittleEndian(record[(offset + 0x10)..]);
+                int valueStart = offset + valueOffset;
+                if (valueLength >= 0x10 && valueStart + 0x10 <= limit)
                 {
-                    logicalSize = BinaryPrimitives.ReadUInt32LittleEndian(record[(offset + 0x10)..]);
-                    allocatedSize = 0; // resident data lives inside the MFT record itself
-                    return true;
+                    long fileTime = BinaryPrimitives.ReadInt64LittleEndian(record[(valueStart + 0x08)..]);
+                    if (fileTime > 0)
+                    {
+                        lastWriteUtc = DateTime.FromFileTimeUtc(fileTime);
+                    }
                 }
-
-                allocatedSize = BinaryPrimitives.ReadInt64LittleEndian(record[(offset + 0x28)..]);
-                logicalSize = BinaryPrimitives.ReadInt64LittleEndian(record[(offset + 0x30)..]);
-
-                ushort compressionUnit = BinaryPrimitives.ReadUInt16LittleEndian(record[(offset + 0x22)..]);
-                if (compressionUnit != 0 && offset + 0x48 <= limit)
-                {
-                    // Compressed/sparse attribute: TotalAllocated reflects actual clusters.
-                    allocatedSize = BinaryPrimitives.ReadInt64LittleEndian(record[(offset + 0x40)..]);
-                }
-
-                return true;
+            }
+            else if (type == AttributeData && record[offset + 9] == 0)
+            {
+                hasData = TryParseDataAttribute(record, offset, limit, out logicalSize, out allocatedSize);
             }
 
             offset += length;
         }
 
-        return false;
+        return hasData;
+    }
+
+    private static bool TryParseDataAttribute(Span<byte> record, int offset, int limit, out long logicalSize, out long allocatedSize)
+    {
+        logicalSize = 0;
+        allocatedSize = 0;
+
+        bool nonResident = record[offset + 8] != 0;
+        if (!nonResident)
+        {
+            logicalSize = BinaryPrimitives.ReadUInt32LittleEndian(record[(offset + 0x10)..]);
+            allocatedSize = 0; // resident data lives inside the MFT record itself
+            return true;
+        }
+
+        allocatedSize = BinaryPrimitives.ReadInt64LittleEndian(record[(offset + 0x28)..]);
+        logicalSize = BinaryPrimitives.ReadInt64LittleEndian(record[(offset + 0x30)..]);
+
+        ushort compressionUnit = BinaryPrimitives.ReadUInt16LittleEndian(record[(offset + 0x22)..]);
+        if (compressionUnit != 0 && offset + 0x48 <= limit)
+        {
+            // Compressed/sparse attribute: TotalAllocated reflects actual clusters.
+            allocatedSize = BinaryPrimitives.ReadInt64LittleEndian(record[(offset + 0x40)..]);
+        }
+
+        return true;
     }
 
     private static bool ApplyFixups(Span<byte> record)

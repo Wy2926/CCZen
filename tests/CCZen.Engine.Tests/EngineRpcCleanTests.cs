@@ -41,7 +41,8 @@ public class EngineRpcCleanTests : IDisposable
         var server = new EngineRpcServer(
             cacheDirectory: null,
             discoverEnvironment: FakeEnvironment,
-            protection: new ProtectedPaths([], windir: null));
+            protection: new ProtectedPaths([], windir: null),
+            getScanRoot: () => _root);
         JsonRpc.Attach(serverStream, server);
         return JsonRpc.Attach(clientStream).Attach<IEngineRpc>();
     }

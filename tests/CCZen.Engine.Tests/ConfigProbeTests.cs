@@ -1,3 +1,4 @@
+using CCZen.Engine.Index;
 using CCZen.Engine.Rules;
 
 namespace CCZen.Engine.Tests;
@@ -118,6 +119,8 @@ public class ConfigProbeTests : IDisposable
         }
         """);
 
+    private IndexQuery Index() => TestIndexFactory.FromDirectory(_root);
+
     [Fact]
     public void ProbedSymbol_ResolvesMigratedDataDir_InItemTargets()
     {
@@ -125,7 +128,7 @@ public class ConfigProbeTests : IDisposable
         string moved = Path.Combine(_root, "moved").Replace("\\", "\\\\");
         Write("app\\settings.json", "{\"storage\":{\"cacheDir\":\"" + moved + "\"}}");
 
-        IReadOnlyList<Recommendation> hits = new AdapterEngine(Env(), ProbedPack()).Evaluate();
+        IReadOnlyList<Recommendation> hits = new AdapterEngine(Env(), ProbedPack(), Index()).Evaluate();
 
         Recommendation hit = Assert.Single(hits);
         Assert.Equal(Path.Combine(_root, "moved", "Cache"), hit.Path);
@@ -138,7 +141,7 @@ public class ConfigProbeTests : IDisposable
         Write("app\\settings.json", "{}");
         WriteBytes("app\\anything.bin");
 
-        Assert.Empty(new AdapterEngine(Env(), ProbedPack()).Evaluate());
+        Assert.Empty(new AdapterEngine(Env(), ProbedPack(), Index()).Evaluate());
     }
 
     [Fact]
@@ -150,7 +153,7 @@ public class ConfigProbeTests : IDisposable
         var newerApp = new InstalledApp("My App", "9.9", null, null);
 
         IReadOnlyList<Recommendation> hits =
-            new AdapterEngine(Env(newerApp), ProbedPack("1.0-3.9")).Evaluate();
+            new AdapterEngine(Env(newerApp), ProbedPack("1.0-3.9"), Index()).Evaluate();
 
         Assert.Equal(Tier.T2, Assert.Single(hits).Tier);
     }
@@ -164,7 +167,7 @@ public class ConfigProbeTests : IDisposable
         var knownApp = new InstalledApp("My App", "2.5", null, null);
 
         IReadOnlyList<Recommendation> hits =
-            new AdapterEngine(Env(knownApp), ProbedPack("1.0-3.9")).Evaluate();
+            new AdapterEngine(Env(knownApp), ProbedPack("1.0-3.9"), Index()).Evaluate();
 
         Assert.Equal(Tier.T1, Assert.Single(hits).Tier);
     }

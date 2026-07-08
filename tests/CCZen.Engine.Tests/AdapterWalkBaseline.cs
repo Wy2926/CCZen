@@ -1,24 +1,19 @@
-using CCZen.Engine.Index;
+using CCZen.Engine.Rules;
 
-namespace CCZen.Engine.Rules;
+namespace CCZen.Engine.Tests;
 
 /// <summary>
-/// Evaluates adapter manifests against the environment model
-/// (spec: 03 ADPT-FR-002/004/005/006). Detected adapters emit
-/// recommendations; adapter-claimed paths take priority over generic
-/// heuristics — merge with <see cref="Merge"/>.
+/// Pre-merge directory-walk baseline for adapter parity tests.
 /// </summary>
-public sealed class AdapterEngine
+internal sealed class AdapterWalkBaseline
 {
     private readonly EnvironmentModel _environment;
     private readonly AdapterPack _pack;
-    private readonly IIndexQuery _index;
 
-    public AdapterEngine(EnvironmentModel environment, AdapterPack pack, IIndexQuery index)
+    public AdapterWalkBaseline(EnvironmentModel environment, AdapterPack pack)
     {
         _environment = environment;
         _pack = pack;
-        _index = index;
     }
 
     public IReadOnlyList<Recommendation> Evaluate()
@@ -49,7 +44,7 @@ public sealed class AdapterEngine
                             continue;
                         }
 
-                        (long size, DateTime lastWrite) = MeasureTree(path);
+                        (long size, _) = MeasureTree(path);
                         if (size == 0)
                         {
                             continue;
@@ -64,7 +59,7 @@ public sealed class AdapterEngine
 
                         recommendations.Add(new Recommendation(
                             path,
-                            IsDirectory: IsDirectoryPath(path),
+                            IsDirectoryPath(path),
                             size,
                             RuleId: $"{adapter.Id}/{item.Id}",
                             tier,
@@ -80,39 +75,6 @@ public sealed class AdapterEngine
         return recommendations;
     }
 
-    /// <summary>ADPT-FR-006: adapter-claimed paths take over generic heuristic hits on the same path or inside it.</summary>
-    public static IReadOnlyList<Recommendation> Merge(
-        IReadOnlyList<Recommendation> adapterHits, IReadOnlyList<Recommendation> genericHits)
-    {
-        var merged = new List<Recommendation>(adapterHits);
-        foreach (Recommendation generic in genericHits)
-        {
-            bool covered = adapterHits.Any(a =>
-                string.Equals(a.Path, generic.Path, StringComparison.OrdinalIgnoreCase) ||
-                generic.Path.StartsWith(a.Path + "\\", StringComparison.OrdinalIgnoreCase));
-            if (!covered)
-            {
-                merged.Add(generic);
-            }
-        }
-
-        return merged;
-    }
-
-    private bool IsDirectoryPath(string path)
-    {
-        if (_index.TryResolvePrefix(path, out int node))
-        {
-            SubtreeStats stats = _index.GetSubtreeStats(node);
-            if (stats.FileCount > 1)
-            {
-                return true;
-            }
-        }
-
-        return Directory.Exists(path) && !File.Exists(path);
-    }
-
     private bool IsDetected(Adapter adapter)
     {
         if (adapter.Detect.UninstallNamePatterns is { Count: > 0 } patterns &&
@@ -123,7 +85,7 @@ public sealed class AdapterEngine
         }
 
         if (adapter.Detect.PathPatterns is { Count: > 0 } paths &&
-            paths.Select(_environment.Expand).Any(p => p is not null && _index.TryResolvePrefix(p, out _)))
+            paths.Select(_environment.Expand).Any(p => p is not null && Directory.Exists(p)))
         {
             return true;
         }
@@ -193,8 +155,7 @@ public sealed class AdapterEngine
                 yield break;
             }
 
-            string pattern = prefix + normalized[wildcard..];
-            foreach (string path in _index.ExpandGlob(pattern))
+            foreach (string path in ExpandGlob(prefix + normalized[wildcard..]))
             {
                 yield return path;
             }
@@ -210,12 +171,12 @@ public sealed class AdapterEngine
 
         if (perChild)
         {
-            foreach (string path in _index.ExpandGlob(expanded + "\\*"))
+            foreach (string path in ExpandGlob(expanded + "\\*"))
             {
                 yield return path;
             }
         }
-        else if (_index.TryResolvePrefix(expanded, out _))
+        else if (Directory.Exists(expanded) || File.Exists(expanded))
         {
             yield return expanded;
         }
@@ -231,14 +192,81 @@ public sealed class AdapterEngine
         return target;
     }
 
-    private (long Size, DateTime LastWriteUtc) MeasureTree(string path)
+    private IEnumerable<string> ExpandGlob(string pattern)
     {
-        if (!_index.TryResolvePrefix(path, out int node))
+        string normalized = pattern.Replace('/', '\\');
+        int middle = normalized.IndexOf("\\*\\", StringComparison.Ordinal);
+        if (middle >= 0)
+        {
+            string prefix = normalized[..middle];
+            string suffix = normalized[(middle + 3)..];
+            if (!Directory.Exists(prefix))
+            {
+                yield break;
+            }
+
+            foreach (string child in Directory.EnumerateDirectories(prefix))
+            {
+                string candidate = child + "\\" + suffix;
+                if (Directory.Exists(candidate) || File.Exists(candidate))
+                {
+                    yield return candidate;
+                }
+            }
+
+            yield break;
+        }
+
+        if (normalized.EndsWith("\\*", StringComparison.Ordinal))
+        {
+            string prefix = normalized[..^2];
+            if (!Directory.Exists(prefix))
+            {
+                yield break;
+            }
+
+            foreach (string child in Directory.EnumerateDirectories(prefix))
+            {
+                yield return child;
+            }
+
+            yield break;
+        }
+
+        if (Directory.Exists(normalized) || File.Exists(normalized))
+        {
+            yield return normalized;
+        }
+    }
+
+    private static (long Size, DateTime LastWriteUtc) MeasureTree(string path)
+    {
+        if (!Directory.Exists(path) && !File.Exists(path))
         {
             return (0, DateTime.MinValue);
         }
 
-        SubtreeStats stats = _index.GetSubtreeStats(node);
-        return (stats.LogicalSize, stats.MaxLastWriteUtc);
+        if (File.Exists(path) && !Directory.Exists(path))
+        {
+            var info = new FileInfo(path);
+            return (info.Length, info.LastWriteTimeUtc);
+        }
+
+        long size = 0;
+        DateTime maxWrite = DateTime.MinValue;
+        foreach (string file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
+        {
+            var info = new FileInfo(file);
+            size += info.Length;
+            if (info.LastWriteTimeUtc > maxWrite)
+            {
+                maxWrite = info.LastWriteTimeUtc;
+            }
+        }
+
+        return (size, maxWrite);
     }
+
+    private static bool IsDirectoryPath(string path) =>
+        Directory.Exists(path) && !File.Exists(path);
 }

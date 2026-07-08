@@ -21,6 +21,11 @@ public sealed class FallbackScanner : IVolumeScanner
     public FileSystemIndex Scan(string root, CancellationToken cancellationToken = default)
     {
         string rootLabel = root.EndsWith('\\') ? root : root + "\\";
+        if (!Directory.Exists(rootLabel.TrimEnd('\\')))
+        {
+            return new IndexBuilder(rootFrn: 1).Build(rootLabel);
+        }
+
         var builder = new IndexBuilder(rootFrn: 1);
         ulong nextId = 2;
         var pending = new Stack<(string Path, ulong Frn)>();
@@ -53,6 +58,7 @@ public sealed class FallbackScanner : IVolumeScanner
                 {
                     ulong id = nextId++;
                     builder.AddEntry(id, parentId, name, isDir);
+                    int nodeIndex = builder.Count - 1;
                     if (isDir)
                     {
                         pending.Push((System.IO.Path.Combine(directory, name), id));
@@ -60,7 +66,14 @@ public sealed class FallbackScanner : IVolumeScanner
                     else
                     {
                         long allocated = (length + _clusterSize - 1) / _clusterSize * _clusterSize;
-                        builder.SetSizes(builder.Count - 1, length, allocated);
+                        builder.SetSizes(nodeIndex, length, allocated);
+                        try
+                        {
+                            builder.SetLastWriteUtc(nodeIndex, File.GetLastWriteTimeUtc(Path.Combine(directory, name)));
+                        }
+                        catch (IOException)
+                        {
+                        }
                     }
                 }
             }

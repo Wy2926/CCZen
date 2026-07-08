@@ -21,6 +21,7 @@
             <TextBlock Text="智能清理" Style="{StaticResource PageTitle}" />
             <TextBlock Text="规则引擎扫描并推荐可清理项：T0/T1 默认勾选，T2 需手动勾选确认，T3 仅提示。所有清理默认移入隔离区，可整批撤销。"
                        Style="{StaticResource SecondaryText}" Margin="0,4,0,0" TextWrapping="Wrap" />
+            <TextBlock Text="{Binding IndexStatus}" Style="{StaticResource SecondaryText}" Margin="0,4,0,0" />
         </StackPanel>
 
         <!-- Toolbar -->

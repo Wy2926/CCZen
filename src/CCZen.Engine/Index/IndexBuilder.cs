@@ -17,6 +17,7 @@ public sealed class IndexBuilder
     private readonly List<bool> _isDirectory = new();
     private readonly List<long> _logicalSize = new();
     private readonly List<long> _allocatedSize = new();
+    private readonly List<long> _lastWriteUtcTicks = new();
     private readonly List<bool> _removed = new();
     private readonly Dictionary<ulong, int> _frnToIndex = new();
     private readonly ulong _rootFrn;
@@ -48,6 +49,7 @@ public sealed class IndexBuilder
         _isDirectory.Add(isDirectory);
         _logicalSize.Add(0);
         _allocatedSize.Add(0);
+        _lastWriteUtcTicks.Add(0);
         _removed.Add(false);
     }
 
@@ -88,6 +90,11 @@ public sealed class IndexBuilder
         _allocatedSize[index] = allocatedSize;
     }
 
+    public void SetLastWriteUtc(int index, DateTime lastWriteUtc)
+    {
+        _lastWriteUtcTicks[index] = lastWriteUtc == DateTime.MinValue ? 0 : lastWriteUtc.Ticks;
+    }
+
     /// <summary>Reconstructs the full path of an entry before the index is built.</summary>
     public string GetPath(int index, string rootLabel)
     {
@@ -121,6 +128,7 @@ public sealed class IndexBuilder
         var isDirectory = new bool[live + 1];
         var logicalSize = new long[live + 1];
         var allocatedSize = new long[live + 1];
+        var lastWriteUtcTicks = new long[live + 1];
 
         for (int i = 0; i < count; i++)
         {
@@ -134,6 +142,7 @@ public sealed class IndexBuilder
             isDirectory[j] = _isDirectory[i];
             logicalSize[j] = _logicalSize[i];
             allocatedSize[j] = _allocatedSize[i];
+            lastWriteUtcTicks[j] = _lastWriteUtcTicks[i];
 
             if (_frn[i] == _rootFrn)
             {
@@ -163,11 +172,17 @@ public sealed class IndexBuilder
         }
 
         return new FileSystemIndex(
-            rootLabel, parent[..total], name[..total], isDirectory[..total], logicalSize[..total], allocatedSize[..total]);
+            rootLabel,
+            parent[..total],
+            name[..total],
+            isDirectory[..total],
+            logicalSize[..total],
+            allocatedSize[..total],
+            lastWriteUtcTicks[..total]);
     }
 
     private const uint CacheMagic = 0x58445A43; // "CZDX"
-    private const uint CacheVersion = 1;
+    private const uint CacheVersion = 2;
 
     /// <summary>Persists the snapshot with an XxHash64 integrity checksum (SCAN-FR-032).</summary>
     public void Save(Stream stream)
@@ -203,6 +218,7 @@ public sealed class IndexBuilder
                 writer.Write(_isDirectory[i]);
                 writer.Write(_logicalSize[i]);
                 writer.Write(_allocatedSize[i]);
+                writer.Write(_lastWriteUtcTicks[i]);
                 writer.Write(_name[i]);
             }
         }
@@ -252,9 +268,11 @@ public sealed class IndexBuilder
             bool isDirectory = reader.ReadBoolean();
             long logical = reader.ReadInt64();
             long allocated = reader.ReadInt64();
+            long lastWriteTicks = reader.ReadInt64();
             string name = reader.ReadString();
             int index = builder.Upsert(frn, parentFrn, name, isDirectory);
             builder.SetSizes(index, logical, allocated);
+            builder.SetLastWriteUtc(index, lastWriteTicks == 0 ? DateTime.MinValue : new DateTime(lastWriteTicks, DateTimeKind.Utc));
         }
 
         return builder;

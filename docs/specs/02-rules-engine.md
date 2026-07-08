@@ -2,8 +2,8 @@
 title: CCZen 清理规则引擎规范
 description: 环境发现、候选生成、证据评分与风险分级的功能需求，以及规则包数据格式。全部推理本地执行，不依赖 LLM。
 ms.topic: reference
-ms.date: 2026-07-07
-status: Draft v0.2
+ms.date: 2026-07-08
+status: Draft v0.3
 applies-to: Windows 10 版本 1809 及更高版本
 ---
 
@@ -62,6 +62,15 @@ applies-to: Windows 10 版本 1809 及更高版本
 ### 2.3 应用适配器
 见 [03-app-adapters.md](03-app-adapters.md)。Adapter 命中的路径接管通用规则（去重，Adapter 优先）。
 
+### 2.4 索引驱动候选生成（与扫描引擎统一）
+
+| ID | 需求 | 级别 |
+|----|------|------|
+| RULE-FR-026 | 候选生成（RULE-FR-020..023）与 Adapter 尺寸统计**必须**通过 `IIndexQuery`（SCAN-FR-028）查询内存索引；**禁止**对规则 target 已覆盖的子树使用 `Directory.EnumerateFiles` / `Directory.EnumerateDirectories` | MUST |
+| RULE-FR-027 | `RecommendAsync` **必须**在评估规则前调用 `EnsureIndex` 确保系统卷（或规则涉及的全部固定卷）索引就绪；与 `SearchAsync` **必须**共享同一 in-memory 索引实例 | MUST |
+
+> **与 RULE-FR-025 的关系**：大体积陈旧文件仍只进入大文件浏览器；索引统一不改变自动推荐边界。
+
 ## 管线 3 — 证据信号（Evidence）
 
 每个候选收集以下信号，各输出 [0,1] 分值；全部为本地可计算量：
@@ -70,9 +79,9 @@ applies-to: Windows 10 版本 1809 及更高版本
 |------|----------|----------|
 | `location` | 位置语义强度（TEMP=1.0；LocalAppData 缓存命名=0.8；用户文档区=0） | 环境模型 |
 | `regenerable` | 命中系统类别/Adapter 声明=高；未知=低 | 规则包数据 |
-| `staleness` | 基于修改时间的衰减函数；LastAccess 仅在 `NtfsDisableLastAccessUpdate`（[fsutil behavior](https://learn.microsoft.com/windows-server/administration/windows-commands/fsutil-behavior)）显示启用更新时参与 | 索引数据 + 注册表 |
+| `staleness` | 基于索引 `MaxLastWriteTimeUtc` / 文件 `LastWriteTimeUtc` 的衰减函数；LastAccess 仅在 `NtfsDisableLastAccessUpdate`（[fsutil behavior](https://learn.microsoft.com/windows-server/administration/windows-commands/fsutil-behavior)）显示启用更新时参与 | SCAN-FR-026/027 + 注册表 |
 | `owner_state` | 已卸载 > 已安装未运行 > 运行中（运行中大幅降分） | RULE-FR-002/005 |
-| `content_type` | 候选树内含文档/照片/工程文件等用户资产扩展名 → 一票降级 | 索引扩展名统计 |
+| `content_type` | 候选树内含文档/照片/工程文件等用户资产扩展名 → 一票降级 | `IIndexQuery.SubtreeContainsExtension` |
 | `lock_state` | [Restart Manager（`RmStartSession`/`RmGetList`）](https://learn.microsoft.com/windows/win32/api/restartmgr/nf-restartmgr-rmgetlist) 占用探测 → 降分 | 公开 API |
 | `system_critical` | 命中保护清单（见 04）→ 一票否决 | 引擎硬编码 |
 
@@ -121,6 +130,7 @@ applies-to: Windows 10 版本 1809 及更高版本
 ## 测试要求
 
 - 规则包 Schema 校验测试 + golden 测试：固定夹具文件树 → 断言推荐集与档位完全一致
+- **Parity 测试**：同一夹具上索引驱动 vs 目录 walk 驱动（合并前基线）→ 路径/大小/档位一致率 ≥ 99.9%
 - 对抗夹具：用户照片放入名为 cache 的目录 → 必须被 `content_type` 降级
 - 中文用户名、Known Folders 重定向、便携版应用环境矩阵
 - 属性测试（FsCheck）：随机文件树输入不崩溃、保护路径永不出现在 T0/T1
@@ -129,4 +139,5 @@ applies-to: Windows 10 版本 1809 及更高版本
 
 - [存储感知（Storage Sense）](https://support.microsoft.com/windows/manage-drive-space-with-storage-sense-654f6ada-7bfc-45e5-966b-e24aded96ad5) — 本引擎 T0 类别与其清理范围对齐
 - [cleanmgr 命令](https://learn.microsoft.com/windows-server/administration/windows-commands/cleanmgr)
-- 06 追溯表条目 R-01 ~ R-20
+- [方案 B 实施计划](../plans/index-merge-scheme-b.md)
+- 06 追溯表条目 R-01 ~ R-15

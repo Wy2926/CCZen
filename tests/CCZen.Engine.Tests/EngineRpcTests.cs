@@ -75,4 +75,21 @@ public class EngineRpcTests : IDisposable
         Assert.NotNull(status);
         Assert.Equal(2, status.FileCount);
     }
+
+    [Fact]
+    public async Task ParallelSearch_AfterScan_DoesNotThrow()
+    {
+        (IEngineRpc client, JsonRpc _) = Connect();
+        await client.ScanAsync(_root, useCache: false, CancellationToken.None);
+        var query = new SearchQuery(SearchKind.Files, MinSizeBytes: 0, NameContains: null, MaxResults: 10);
+
+        Task<IReadOnlyList<FileEntry>>[] searches =
+            Enumerable.Range(0, 8)
+                .Select(_ => client.SearchAsync(query, CancellationToken.None))
+                .ToArray();
+
+        IReadOnlyList<FileEntry>[] results = await Task.WhenAll(searches);
+
+        Assert.All(results, r => Assert.Equal(2, r.Count));
+    }
 }

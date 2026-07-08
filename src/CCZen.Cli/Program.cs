@@ -109,10 +109,13 @@ return 0;
 static IReadOnlyList<Recommendation> EvaluateAll()
 {
     EnvironmentModel environment = EnvironmentDiscovery.Discover();
+    string root = Path.GetPathRoot(Environment.SystemDirectory) ?? "C:\\";
+    FileSystemIndex index = VolumeScannerFactory.Create(root).Scan(root);
+    var query = new IndexQuery(index);
     IReadOnlyList<Recommendation> adapterHits =
-        new AdapterEngine(environment, BaselineAdapterPack.Load()).Evaluate();
+        new AdapterEngine(environment, BaselineAdapterPack.Load(), query).Evaluate();
     IReadOnlyList<Recommendation> genericHits =
-        new RuleEngine(environment, BaselineRulePack.Load()).Evaluate();
+        new RuleEngine(environment, BaselineRulePack.Load(), query).Evaluate();
     return AdapterEngine.Merge(adapterHits, genericHits);
 }
 
