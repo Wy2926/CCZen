@@ -129,7 +129,7 @@ public sealed class FileSystemIndex
             ? TopBy(query.MaxResults, i => !_isDirectory[i] && MatchesQuery(i, query, _allocatedSize[i]), i => _allocatedSize[i])
             : [];
         IReadOnlyList<FileEntry> directories = query.Kind is SearchKind.Directories or SearchKind.All
-            ? TopDistinctDirectoriesMatching(query)
+            ? SuppressNestedDirectoryAncestors(TopDistinctDirectoriesMatching(query))
             : [];
 
         return files.Concat(directories)
@@ -145,6 +145,24 @@ public sealed class FileSystemIndex
                          e.Path.Contains(query.NameContains, StringComparison.OrdinalIgnoreCase)))
             .Take(query.MaxResults)
             .ToList();
+
+    /// <summary>
+    /// When a child directory matches, drop ancestor directories from the same
+    /// result set so users do not see redundant nested parents (SCAN-FR-025 UX).
+    /// </summary>
+    internal static IReadOnlyList<FileEntry> SuppressNestedDirectoryAncestors(IReadOnlyList<FileEntry> directories)
+    {
+        if (directories.Count <= 1)
+        {
+            return directories;
+        }
+
+        return directories
+            .Where(dir => !directories.Any(other =>
+                !string.Equals(dir.Path, other.Path, StringComparison.OrdinalIgnoreCase) &&
+                other.Path.StartsWith(dir.Path.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+    }
 
     private bool MatchesQuery(int i, SearchQuery query, long size) =>
         size >= query.MinSizeBytes &&

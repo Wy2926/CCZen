@@ -69,7 +69,15 @@ public sealed partial class CleanerViewModel : OperationViewModel
     /// <summary>When true (settings), a confirm dialog is shown before every clean.</summary>
     public Func<bool> ConfirmBeforeClean { get; set; } = () => true;
 
-    /// <summary>When true (settings), clean deletes directly instead of quarantining.</summary>
+    /// <summary>Settings default: true = quarantine, false = direct delete.</summary>
+    public Func<bool> DefaultUseQuarantine { get; set; } = () => true;
+
+    /// <summary>Delete confirmation with quarantine toggle; returns null if cancelled.</summary>
+    public Func<string, string, bool, Task<DeleteConfirmResult?>> ConfirmDeleteInteraction { get; set; } =
+        (_, _, defaultUseQuarantine) => Task.FromResult<DeleteConfirmResult?>(
+            new DeleteConfirmResult(Confirmed: true, UseQuarantine: defaultUseQuarantine));
+
+    /// <summary>Legacy alias for settings direct-delete mode.</summary>
     public Func<bool> DirectDeleteMode { get; set; } = () => false;
 
     [RelayCommand]
@@ -141,24 +149,22 @@ public sealed partial class CleanerViewModel : OperationViewModel
             return;
         }
 
-        bool directDelete = DirectDeleteMode();
+        bool useQuarantine = DefaultUseQuarantine();
         var t2Paths = selected.Where(i => i.Tier == Tier.T2).Select(i => i.Path).ToList();
         long totalBytes = selected.Sum(i => i.SizeBytes);
-        if (ConfirmBeforeClean() || t2Paths.Count > 0 || directDelete)
+        string t2Hint = t2Paths.Count > 0 ? $"（含 {t2Paths.Count} 项 T2 需确认项）" : string.Empty;
+        DeleteConfirmResult? confirm = await ConfirmDeleteInteraction(
+            "确认清理所选项目？",
+            $"将处理 {selected.Count} 项（约 {SizeFormatter.Format(totalBytes)}）{t2Hint}。请选择移入隔离区或直接永久删除。",
+            useQuarantine);
+        if (confirm is null)
         {
-            string t2Hint = t2Paths.Count > 0 ? $"（含 {t2Paths.Count} 项 T2 需确认项）" : string.Empty;
-            string action = directDelete
-                ? $"直接永久删除{t2Hint}。此操作不可撤销！"
-                : $"移入隔离区{t2Hint}。操作可在隔离区整批撤销。";
-            bool confirmed = await ConfirmInteraction(
-                directDelete ? "确认永久删除所选项目？" : "确认清理所选项目？",
-                $"将把 {selected.Count} 项（约 {SizeFormatter.Format(totalBytes)}）{action}");
-            if (!confirmed)
-            {
-                Status = "已取消清理。";
-                return;
-            }
+            Status = "已取消清理。";
+            return;
         }
+
+        useQuarantine = confirm.UseQuarantine;
+        bool directDelete = !useQuarantine;
 
         var selectedPaths = selected.Select(i => i.Path).ToList();
         BatchPlan plan = await _engine.PlanCleanAsync(t2Paths, selectedPaths);
@@ -169,10 +175,12 @@ public sealed partial class CleanerViewModel : OperationViewModel
             return;
         }
 
+        PrepareExecuteProgress(plan.Items.Select(i => i.Path));
         IReadOnlyList<ItemResult> results = await _engine.ExecuteBatchAsync(
             plan.BatchId,
             directDelete,
-            CreateExecuteProgress(directDelete ? "正在删除" : "正在移入隔离区"));
+            CreateBatchProgressReporter(directDelete ? "正在永久删除" : "正在移入隔离区"));
+        FinalizeExecuteProgress(results);
         int succeeded = results.Count(r => r.Outcome is ItemOutcome.Quarantined or ItemOutcome.Deleted);
         ReportSkipped(results);
 
@@ -191,14 +199,6 @@ public sealed partial class CleanerViewModel : OperationViewModel
         LastBatch = batch;
         Status = $"批次 {plan.BatchId}：{succeeded}/{results.Count} 项已移入隔离区，可撤销{SkippedSuffix(results.Count - succeeded)}";
     }
-
-    /// <summary>Maps engine execute progress onto the page progress bar.</summary>
-    private Progress<ExecuteProgress> CreateExecuteProgress(string verb) =>
-        new(p =>
-        {
-            ProgressValue = p.Total == 0 ? 100 : 100.0 * p.Done / p.Total;
-            ProgressPhase = $"{verb} {p.Done}/{p.Total}：{p.CurrentPath}";
-        });
 
     private void ReportSkipped(IReadOnlyList<ItemResult> results)
     {

@@ -84,9 +84,22 @@ public class FileSystemIndexSearchTests
             new SearchQuery(SearchKind.Directories, MinSizeBytes: 550, NameContains: null, MaxResults: 10));
         var paths = results.Select(e => e.Path).ToList();
 
-        Assert.Contains("C:\\Users\\Wy\\AppData\\Local", paths);
         Assert.Contains("C:\\Users\\Wy\\AppData\\Local\\Temp", paths);
         Assert.DoesNotContain("C:\\Users\\Wy", paths);
+        // Local is an ancestor of Temp; only the deeper matching folder is shown.
+        Assert.DoesNotContain("C:\\Users\\Wy\\AppData\\Local", paths);
+    }
+
+    [Fact]
+    public void Search_Directories_SiblingBranchesBothShown()
+    {
+        var results = BuildAncestorChain().Search(
+            new SearchQuery(SearchKind.Directories, MinSizeBytes: 400, NameContains: null, MaxResults: 10));
+        var paths = results.Select(e => e.Path).ToList();
+
+        Assert.Contains("C:\\Users\\Wy\\AppData\\Local\\Temp", paths);
+        Assert.Contains("C:\\Users\\Wy\\AppData\\Local\\Docker", paths);
+        Assert.DoesNotContain("C:\\Users\\Wy\\AppData\\Local", paths);
     }
 
     [Fact]

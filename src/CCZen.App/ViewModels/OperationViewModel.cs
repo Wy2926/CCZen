@@ -1,3 +1,8 @@
+using System.Collections.ObjectModel;
+using System.IO;
+using CCZen.App.Models;
+using CCZen.Engine.Safety;
+using CCZen.Engine.Service;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace CCZen.App.ViewModels;
@@ -23,7 +28,85 @@ public abstract partial class OperationViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(HasStatus))]
     private string _status = string.Empty;
 
+    [ObservableProperty]
+    private bool _isExecutingBatch;
+
     public bool HasStatus => Status.Length > 0;
+
+    public ObservableCollection<ExecuteProgressRow> ExecuteProgressItems { get; } = [];
+
+    protected void PrepareExecuteProgress(IEnumerable<string> paths)
+    {
+        ExecuteProgressItems.Clear();
+        foreach (string path in paths)
+        {
+            ExecuteProgressItems.Add(new ExecuteProgressRow(path));
+        }
+
+        IsExecutingBatch = ExecuteProgressItems.Count > 0;
+    }
+
+    protected Progress<ExecuteProgress> CreateBatchProgressReporter(string verb)
+    {
+        return new Progress<ExecuteProgress>(p =>
+        {
+            ProgressValue = p.Total == 0 ? 100 : 100.0 * p.Done / p.Total;
+            ProgressPhase = $"{verb} {p.Done}/{p.Total}：{Path.GetFileName(p.CurrentPath)}";
+            UpdateExecuteProgressRows(p);
+        });
+    }
+
+    protected void FinalizeExecuteProgress(IReadOnlyList<ItemResult> results)
+    {
+        foreach (ItemResult result in results)
+        {
+            ExecuteProgressRow? row = ExecuteProgressItems.FirstOrDefault(r =>
+                string.Equals(r.Path, result.Path, StringComparison.OrdinalIgnoreCase));
+            if (row is null)
+            {
+                continue;
+            }
+
+            if (result.Outcome is ItemOutcome.Quarantined or ItemOutcome.Deleted)
+            {
+                row.Status = ExecuteItemStatus.Completed;
+                row.Detail = result.Outcome == ItemOutcome.Deleted ? "已永久删除" : "已移入隔离区";
+            }
+            else
+            {
+                row.Status = ExecuteItemStatus.Skipped;
+                row.Detail = new SkippedItemRow(result).Reason;
+            }
+        }
+
+        foreach (ExecuteProgressRow row in ExecuteProgressItems.Where(r => r.Status == ExecuteItemStatus.Pending))
+        {
+            row.Status = ExecuteItemStatus.Skipped;
+            row.Detail = "未处理";
+        }
+
+        IsExecutingBatch = false;
+    }
+
+    private void UpdateExecuteProgressRows(ExecuteProgress progress)
+    {
+        ExecuteProgressRow? current = ExecuteProgressItems.FirstOrDefault(r =>
+            string.Equals(r.Path, progress.CurrentPath, StringComparison.OrdinalIgnoreCase));
+        if (current is not null)
+        {
+            current.Status = ExecuteItemStatus.Running;
+        }
+
+        for (int i = 0; i < ExecuteProgressItems.Count && i < progress.Done; i++)
+        {
+            ExecuteProgressRow row = ExecuteProgressItems[i];
+            if (row.Status is ExecuteItemStatus.Pending or ExecuteItemStatus.Running &&
+                !string.Equals(row.Path, progress.CurrentPath, StringComparison.OrdinalIgnoreCase))
+            {
+                row.Status = ExecuteItemStatus.Completed;
+            }
+        }
+    }
 
     protected async Task RunGuardedAsync(Func<Task> action, IReadOnlyList<string>? phases = null)
     {

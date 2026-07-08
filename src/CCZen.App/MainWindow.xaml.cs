@@ -18,7 +18,10 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         App.Cleaner.ConfirmInteraction = GlobalDialog.ShowConfirm;
-        App.Search.ConfirmInteraction = GlobalDialog.ShowConfirm;
+        App.Cleaner.ConfirmDeleteInteraction = (title, message, defaultUseQuarantine) =>
+            GlobalDeleteDialog.Show(title, message, defaultUseQuarantine);
+        App.Search.ConfirmDeleteInteraction = (title, message, defaultUseQuarantine) =>
+            GlobalDeleteDialog.Show(title, message, defaultUseQuarantine);
         App.Cleaner.PropertyChanged += (_, e) => OnOperationChanged(e.PropertyName);
         App.Search.PropertyChanged += (_, e) => OnOperationChanged(e.PropertyName);
         NavigateTo("home");
