@@ -25,8 +25,11 @@ public sealed class QuarantineStore
     /// Executes a confirmed batch plan: each item is re-verified (protection,
     /// fingerprint, reparse point) and moved into
     /// <c>&lt;volume&gt;\CCZen.Quarantine\&lt;batchId&gt;\</c> on its own volume.
+    /// With <paramref name="permanentDelete"/> the item is deleted directly
+    /// (explicit user opt-in only). <paramref name="progress"/> receives
+    /// (done, total, currentPath) after each item.
     /// </summary>
-    public IReadOnlyList<ItemResult> Execute(BatchPlan plan)
+    public IReadOnlyList<ItemResult> Execute(BatchPlan plan, bool permanentDelete = false, Action<int, int, string>? progress = null)
     {
         var results = new List<ItemResult>(plan.Items.Count);
         var journals = new Dictionary<string, WalJournal>(StringComparer.OrdinalIgnoreCase);
@@ -34,7 +37,8 @@ public sealed class QuarantineStore
         {
             foreach (PlanItem item in plan.Items)
             {
-                results.Add(ExecuteItem(plan, item, journals));
+                results.Add(ExecuteItem(plan, item, journals, permanentDelete));
+                progress?.Invoke(results.Count, plan.Items.Count, item.Path);
             }
         }
         finally
@@ -48,7 +52,7 @@ public sealed class QuarantineStore
         return results;
     }
 
-    private ItemResult ExecuteItem(BatchPlan plan, PlanItem item, Dictionary<string, WalJournal> journals)
+    private ItemResult ExecuteItem(BatchPlan plan, PlanItem item, Dictionary<string, WalJournal> journals, bool permanentDelete)
     {
         if (_protectedPaths.IsProtected(item.Path))
         {
@@ -97,6 +101,24 @@ public sealed class QuarantineStore
 
         try
         {
+            if (permanentDelete)
+            {
+                // WAL: the delete intent is journaled for the audit trail even
+                // though a delete cannot be restored (SAFE-FR-050).
+                journal.Write(new WalRecord("delete-intent", item.Path, string.Empty, item.IsDirectory));
+                if (item.IsDirectory)
+                {
+                    Directory.Delete(item.Path, recursive: true);
+                }
+                else
+                {
+                    File.Delete(item.Path);
+                }
+
+                journal.Write(new WalRecord("delete-done", item.Path, string.Empty, item.IsDirectory));
+                return new ItemResult(item.Path, ItemOutcome.Deleted, null, null);
+            }
+
             // WAL: intent is durable before the move (SAFE-FR-012).
             journal.Write(new WalRecord("move-intent", item.Path, quarantinePath, item.IsDirectory));
             if (item.IsDirectory)
@@ -113,7 +135,7 @@ public sealed class QuarantineStore
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            journal.Write(new WalRecord("move-failed", item.Path, quarantinePath, item.IsDirectory));
+            journal.Write(new WalRecord(permanentDelete ? "delete-failed" : "move-failed", item.Path, quarantinePath, item.IsDirectory));
             return new ItemResult(item.Path, ItemOutcome.Failed, null, ex.Message);
         }
     }
@@ -168,6 +190,19 @@ public sealed class QuarantineStore
         }
 
         return results;
+    }
+
+    /// <summary>Permanently deletes one quarantined batch (explicit user action, SAFE-FR-025).</summary>
+    public bool PurgeBatch(string volumeRoot, string batchId)
+    {
+        string batchDirectory = Path.Combine(volumeRoot, DirectoryName, batchId);
+        if (!Directory.Exists(batchDirectory))
+        {
+            return false;
+        }
+
+        Directory.Delete(batchDirectory, recursive: true);
+        return true;
     }
 
     /// <summary>SAFE-FR-025: permanently deletes quarantined batches older than the retention window.</summary>

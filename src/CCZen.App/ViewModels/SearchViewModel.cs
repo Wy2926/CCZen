@@ -4,6 +4,7 @@ using CCZen.App.Models;
 using CCZen.App.Services;
 using CCZen.Engine.Index;
 using CCZen.Engine.Safety;
+using CCZen.Engine.Service;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -82,14 +83,12 @@ public sealed partial class SearchViewModel : OperationViewModel
 
     private async Task EnsureIndexAsync()
     {
-        if (await _engine.GetStatusAsync() is not null)
-        {
-            return;
-        }
-
+        // Always rescan: with the persisted USN cache this is an incremental
+        // catch-up (fast), so results include files created since last search.
         string root = Path.GetPathRoot(Environment.SystemDirectory) ?? "C:\\";
         var summary = await _engine.ScanAsync(root);
-        IndexStatus = $"已索引 {root} — {summary.FileCount:N0} 个文件（{summary.ElapsedSeconds:0.00} s）";
+        string mode = summary.Incremental ? "增量刷新" : "完整扫描";
+        IndexStatus = $"已索引 {root} — {summary.FileCount:N0} 个文件（{mode}，{summary.ElapsedSeconds:0.00} s）";
     }
 
     private async Task RunSearchAsync()
@@ -149,7 +148,14 @@ public sealed partial class SearchViewModel : OperationViewModel
             return;
         }
 
-        IReadOnlyList<ItemResult> results = await _engine.ExecuteBatchAsync(plan.BatchId);
+        IReadOnlyList<ItemResult> results = await _engine.ExecuteBatchAsync(
+            plan.BatchId,
+            permanentDelete: false,
+            new Progress<ExecuteProgress>(p =>
+            {
+                ProgressValue = p.Total == 0 ? 100 : 100.0 * p.Done / p.Total;
+                ProgressPhase = $"正在移入隔离区 {p.Done}/{p.Total}：{p.CurrentPath}";
+            }));
         int quarantined = results.Count(r => r.Outcome == ItemOutcome.Quarantined);
 
         var batch = new QuarantineBatchRow(
@@ -159,13 +165,18 @@ public sealed partial class SearchViewModel : OperationViewModel
             DateTime.Now.ToString("yyyy-MM-dd HH:mm"));
         BatchRecorded?.Invoke(batch);
 
-        foreach (SelectableSearchRow row in selected)
+        foreach (SelectableSearchRow row in results
+                     .Where(r => r.Outcome == ItemOutcome.Quarantined)
+                     .Join(selected, r => r.Path, s => s.Path, (_, s) => s, StringComparer.OrdinalIgnoreCase))
         {
             Results.Remove(row);
         }
 
         RecomputeSelection();
-        Status = $"批次 {plan.BatchId}：{quarantined}/{results.Count} 项已移入隔离区，可在隔离区还原。";
+        string failHint = quarantined < results.Count
+            ? $"；{results.Count - quarantined} 项未处理（{string.Join("；", results.Where(r => r.Outcome != ItemOutcome.Quarantined).Select(r => new SkippedItemRow(r).Reason).Distinct())}）"
+            : string.Empty;
+        Status = $"批次 {plan.BatchId}：{quarantined}/{results.Count} 项已移入隔离区，可在隔离区还原{failHint}。";
     }
 
     private long ParseMinSizeBytes() =>

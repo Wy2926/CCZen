@@ -122,7 +122,7 @@ public sealed class EngineRpcServer : IEngineRpc
             },
             cancellationToken);
 
-    public Task<IReadOnlyList<ItemResult>> ExecuteBatchAsync(string batchId, CancellationToken cancellationToken)
+    public Task<IReadOnlyList<ItemResult>> ExecuteBatchAsync(string batchId, bool permanentDelete, IProgress<ExecuteProgress>? progress, CancellationToken cancellationToken)
     {
         if (!_plans.TryGetValue(batchId, out BatchPlan? plan))
         {
@@ -131,7 +131,12 @@ public sealed class EngineRpcServer : IEngineRpc
 
         // The confirmed plan snapshot is executed exactly once (SAFE-FR-010).
         _plans.Remove(batchId);
-        return Task.Run<IReadOnlyList<ItemResult>>(() => _quarantine.Execute(plan), cancellationToken);
+        return Task.Run<IReadOnlyList<ItemResult>>(
+            () => _quarantine.Execute(
+                plan,
+                permanentDelete,
+                (done, total, path) => progress?.Report(new ExecuteProgress(done, total, path))),
+            cancellationToken);
     }
 
     public Task<IReadOnlyList<ItemResult>> RestoreBatchAsync(string volumeRoot, string batchId, CancellationToken cancellationToken) =>
@@ -158,6 +163,9 @@ public sealed class EngineRpcServer : IEngineRpc
                 return batches;
             },
             cancellationToken);
+
+    public Task<bool> PurgeBatchAsync(string volumeRoot, string batchId, CancellationToken cancellationToken) =>
+        Task.Run(() => _quarantine.PurgeBatch(volumeRoot, batchId), cancellationToken);
 
     private FileSystemIndex RequireIndex() =>
         _index ?? throw new InvalidOperationException("No index available. Call Scan first.");

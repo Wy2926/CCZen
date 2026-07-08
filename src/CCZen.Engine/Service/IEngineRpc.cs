@@ -42,15 +42,27 @@ public interface IEngineRpc
     /// <summary>Builds a reversible quarantine plan for user-picked paths (large-file search).</summary>
     Task<BatchPlan> PlanQuarantineAsync(IReadOnlyList<string> paths, CancellationToken cancellationToken);
 
-    /// <summary>Executes a previously planned batch by id; returns per-item audit results (specs/04).</summary>
-    Task<IReadOnlyList<ItemResult>> ExecuteBatchAsync(string batchId, CancellationToken cancellationToken);
+    /// <summary>
+    /// Executes a previously planned batch by id; returns per-item audit
+    /// results (specs/04). When <paramref name="permanentDelete"/> is true the
+    /// items are deleted directly instead of moved to quarantine (requires an
+    /// explicit user opt-in — red line 1 forbids silent permanent deletion).
+    /// Per-item progress is streamed through <paramref name="progress"/>.
+    /// </summary>
+    Task<IReadOnlyList<ItemResult>> ExecuteBatchAsync(string batchId, bool permanentDelete, IProgress<ExecuteProgress>? progress, CancellationToken cancellationToken);
 
     /// <summary>Restores a quarantined batch back to original paths.</summary>
     Task<IReadOnlyList<ItemResult>> RestoreBatchAsync(string volumeRoot, string batchId, CancellationToken cancellationToken);
 
     /// <summary>Lists quarantine batches on a volume.</summary>
     Task<IReadOnlyList<BatchInfo>> ListBatchesAsync(string volumeRoot, CancellationToken cancellationToken);
+
+    /// <summary>Permanently deletes a quarantined batch (explicit user action, SAFE-FR-025).</summary>
+    Task<bool> PurgeBatchAsync(string volumeRoot, string batchId, CancellationToken cancellationToken);
 }
+
+/// <summary>Streaming progress for batch execution: item <c>Done</c> of <c>Total</c> just finished.</summary>
+public sealed record ExecuteProgress(int Done, int Total, string CurrentPath);
 
 /// <summary>Quarantine batch listing entry (SAFE-FR-027).</summary>
 public sealed record BatchInfo(string BatchId, long SizeBytes, DateTime LastWriteUtc);

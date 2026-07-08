@@ -23,6 +23,7 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         Cleaner.ConfirmBeforeClean = () => Settings.ConfirmBeforeClean;
+        Cleaner.DirectDeleteMode = () => Settings.CleanModeIndex == 1;
         Search.BatchRecorded = Cleaner.RecordBatch;
         base.OnStartup(e);
     }

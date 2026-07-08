@@ -15,7 +15,7 @@
 
         <StackPanel Grid.Row="0" Margin="0,0,0,12">
             <TextBlock Text="隔离区" Style="{StaticResource PageTitle}" />
-            <TextBlock Text="所有清理默认移入隔离区（红线 1：永不静默永久删除）。误删可整批一键还原到原路径。"
+            <TextBlock Text="清理默认移入隔离区（红线 1：永不静默永久删除）。误删可整批一键还原到原路径；确认无误后也可彻底删除批次以释放空间。"
                        Style="{StaticResource SecondaryText}" Margin="0,4,0,0" TextWrapping="Wrap" />
         </StackPanel>
 
@@ -54,9 +54,14 @@
                                         <TextBlock Text="{Binding Summary}" Style="{StaticResource PrimaryText}"
                                                    FontSize="12" Margin="0,3,0,0" />
                                     </StackPanel>
-                                    <Button Grid.Column="2" Content="↩ 整批还原" VerticalAlignment="Center"
-                                            Command="{Binding DataContext.RestoreBatchCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                            CommandParameter="{Binding}" />
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Button Content="↩ 整批还原" Margin="0,0,8,0"
+                                                Command="{Binding DataContext.RestoreBatchCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                CommandParameter="{Binding}" />
+                                        <Button Content="🗑 彻底删除" ToolTip="永久删除该批次，删除后无法再还原（执行前会确认）"
+                                                Command="{Binding DataContext.PurgeBatchCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                CommandParameter="{Binding}" />
+                                    </StackPanel>
                                 </Grid>
                             </Border>
                         </DataTemplate>

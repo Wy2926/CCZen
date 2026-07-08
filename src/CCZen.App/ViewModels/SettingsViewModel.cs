@@ -21,6 +21,10 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private bool _confirmBeforeClean = true;
 
+    /// <summary>0 = 移入隔离区（可撤销）, 1 = 直接永久删除.</summary>
+    [ObservableProperty]
+    private int _cleanModeIndex;
+
     [ObservableProperty]
     private int _retentionIndex = 1;
 

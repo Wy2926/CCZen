@@ -43,11 +43,14 @@ public sealed class EngineClient : IEngineClient, IAsyncDisposable
     public async Task<BatchPlan> PlanQuarantineAsync(IReadOnlyList<string> paths, CancellationToken cancellationToken = default) =>
         await (await GetEngineAsync(cancellationToken)).PlanQuarantineAsync(paths, cancellationToken);
 
-    public async Task<IReadOnlyList<ItemResult>> ExecuteBatchAsync(string batchId, CancellationToken cancellationToken = default) =>
-        await (await GetEngineAsync(cancellationToken)).ExecuteBatchAsync(batchId, cancellationToken);
+    public async Task<IReadOnlyList<ItemResult>> ExecuteBatchAsync(string batchId, bool permanentDelete = false, IProgress<ExecuteProgress>? progress = null, CancellationToken cancellationToken = default) =>
+        await (await GetEngineAsync(cancellationToken)).ExecuteBatchAsync(batchId, permanentDelete, progress, cancellationToken);
 
     public async Task<IReadOnlyList<ItemResult>> RestoreBatchAsync(string volumeRoot, string batchId, CancellationToken cancellationToken = default) =>
         await (await GetEngineAsync(cancellationToken)).RestoreBatchAsync(volumeRoot, batchId, cancellationToken);
+
+    public async Task<bool> PurgeBatchAsync(string volumeRoot, string batchId, CancellationToken cancellationToken = default) =>
+        await (await GetEngineAsync(cancellationToken)).PurgeBatchAsync(volumeRoot, batchId, cancellationToken);
 
     public async ValueTask DisposeAsync()
     {
@@ -86,7 +89,11 @@ public sealed class EngineClient : IEngineClient, IAsyncDisposable
         catch (Exception ex) when (ex is TimeoutException or IOException)
         {
             await pipe.DisposeAsync();
-            return new EngineRpcServer();
+            string cacheDirectory = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "CCZen",
+                "IndexCache");
+            return new EngineRpcServer(cacheDirectory);
         }
     }
 }

@@ -57,6 +57,7 @@
                     </controls:EmptyState.Style>
                 </controls:EmptyState>
 
+                <StackPanel>
                 <ItemsControl ItemsSource="{Binding Groups}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
@@ -113,6 +114,102 @@
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
+
+                <!-- Report-only / non-selectable groups: separate, clearly explained -->
+                <StackPanel Margin="0,8,0,0">
+                    <StackPanel.Style>
+                        <Style TargetType="StackPanel">
+                            <Setter Property="Visibility" Value="Visible" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding ReportOnlyGroups.Count}" Value="0">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </StackPanel.Style>
+                    <TextBlock Text="仅提示项（不参与清理）" Style="{StaticResource PrimaryText}" FontSize="13" FontWeight="SemiBold" />
+                    <TextBlock Text="以下项目属于 T3 级或仅报告规则，存在风险或需手动处理，因此不可勾选、不会被清理，仅供了解磁盘占用。"
+                               Style="{StaticResource SecondaryText}" FontSize="11" Margin="0,3,0,8" TextWrapping="Wrap" />
+                    <ItemsControl ItemsSource="{Binding ReportOnlyGroups}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Style="{StaticResource CardBorder}" Margin="0,0,0,8" Padding="14,10" Opacity="0.75">
+                                    <Expander IsExpanded="False">
+                                        <Expander.Header>
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <controls:TierBadge Grid.Column="0" Tier="{Binding Tier}" Margin="0,0,10,0" />
+                                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding Title}" Style="{StaticResource PrimaryText}" FontSize="13" />
+                                                    <TextBlock Text="{Binding RuleId}" Style="{StaticResource SecondaryText}" FontSize="11"
+                                                               FontFamily="Cascadia Code,Consolas" Margin="0,2,0,0" />
+                                                </StackPanel>
+                                                <TextBlock Grid.Column="2" Text="{Binding Detail}" Style="{StaticResource DataText}"
+                                                           Foreground="{DynamicResource SecondaryTextBrush}" VerticalAlignment="Center"
+                                                           Margin="12,0" />
+                                            </Grid>
+                                        </Expander.Header>
+                                        <ItemsControl ItemsSource="{Binding Items}" Margin="26,8,0,0">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Grid Margin="0,3">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="80" />
+                                                            <ColumnDefinition Width="*" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <TextBlock Grid.Column="0" Text="{Binding SizeText}" Style="{StaticResource DataText}"
+                                                                   VerticalAlignment="Center" />
+                                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                            <TextBlock Text="{Binding Path}" Style="{StaticResource DataText}"
+                                                                       TextTrimming="CharacterEllipsis" ToolTip="{Binding Path}" />
+                                                            <TextBlock Text="{Binding Explain}" Style="{StaticResource SecondaryText}"
+                                                                       FontSize="11" Margin="0,1,0,0" TextTrimming="CharacterEllipsis" />
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </Expander>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+
+                <!-- Items the last clean could not process, with reasons -->
+                <StackPanel Margin="0,8,0,0">
+                    <StackPanel.Style>
+                        <Style TargetType="StackPanel">
+                            <Setter Property="Visibility" Value="Visible" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding SkippedItems.Count}" Value="0">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </StackPanel.Style>
+                    <TextBlock Text="⚠ 上次清理未处理的项目" Style="{StaticResource PrimaryText}" FontSize="13" FontWeight="SemiBold"
+                               Foreground="{DynamicResource WarningBrush}" />
+                    <ItemsControl ItemsSource="{Binding SkippedItems}" Margin="0,6,0,0">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Style="{StaticResource CardBorder}" Margin="0,0,0,6" Padding="12,8">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Path}" Style="{StaticResource DataText}"
+                                                   TextTrimming="CharacterEllipsis" ToolTip="{Binding Path}" />
+                                        <TextBlock Text="{Binding Reason}" Style="{StaticResource SecondaryText}" FontSize="11"
+                                                   Margin="0,2,0,0" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+                </StackPanel>
             </Grid>
         </ScrollViewer>
 
@@ -121,8 +218,9 @@
             <DockPanel>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                     <Button Content="↩ 撤销上次" Command="{Binding UndoCommand}" Margin="0,0,10,0" />
-                    <Button Content="🧹 清理所选（移入隔离区）" Style="{StaticResource AccentButton}"
-                            Command="{Binding CleanSelectedCommand}" />
+                    <Button Content="🧹 清理所选" Style="{StaticResource AccentButton}"
+                            Command="{Binding CleanSelectedCommand}"
+                            ToolTip="清理方式由设置决定：默认移入隔离区（可撤销），可在设置中改为直接永久删除" />
                 </StackPanel>
                 <StackPanel VerticalAlignment="Center">
                     <TextBlock Text="{Binding SelectionSummary}" Style="{StaticResource PrimaryText}" />
